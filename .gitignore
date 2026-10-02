@@ -1,0 +1,29 @@
+# Cheia API Claude si setari locale - NU se urca pe GitHub
+asistent.json
+stil_subtitrari.json
+look_implicit.json
+biblioteci.json
+
+# Video-uri de intrare / rezultate
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Remotion / Node
+remotion/node_modules/
+remotion/public/*
+!remotion/public/.gitkeep
+remotion/build/
+remotion/.remotion/
+
+# Sistem
+.DS_Store
+Thumbs.db
+desktop.ini
