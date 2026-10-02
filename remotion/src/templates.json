@@ -1,0 +1,46 @@
+[
+  {"id": "hook", "label": "Titlu mare", "desc": "Titlu scurt care apare cuvânt cu cuvânt. Pentru cârligul de la început sau începutul unei secțiuni.",
+   "ar": 0.42, "w": 0.88, "x": 0.5, "y": 0.28, "dur": 3,
+   "fields": [
+     {"k": "text", "l": "Text", "t": "text", "d": "Ești plin de bacterii"},
+     {"k": "accent", "l": "Cuvinte evidențiate (cu virgulă)", "t": "text", "d": "bacterii"},
+     {"k": "color", "l": "Culoare text", "t": "color", "d": "#F3EDDD"},
+     {"k": "accent_color", "l": "Culoare evidențiere", "t": "color", "d": "#E8A83B"},
+     {"k": "card", "l": "Fundal închis", "t": "bool", "d": true}]},
+  {"id": "stat", "label": "Cifră mare", "desc": "Un număr important care crește animat, cu unitate și o explicație scurtă (ex: 39 trilioane de bacterii).",
+   "ar": 0.62, "w": 0.72, "x": 0.5, "y": 0.28, "dur": 3.5,
+   "fields": [
+     {"k": "value", "l": "Cifra", "t": "text", "d": "39"},
+     {"k": "unit", "l": "Unitate", "t": "text", "d": "trilioane"},
+     {"k": "label", "l": "Explicație", "t": "text", "d": "de bacterii trăiesc în tine"},
+     {"k": "count", "l": "Numărătoare animată", "t": "bool", "d": true},
+     {"k": "color", "l": "Culoare text", "t": "color", "d": "#F3EDDD"},
+     {"k": "accent_color", "l": "Culoare cifră", "t": "color", "d": "#E8A83B"}]},
+  {"id": "point", "label": "Punct numerotat", "desc": "Titlul unei idei dintr-o listă, cu numărul ei (ex: Rolul 1 din 4 — Combustibil pentru intestin).",
+   "ar": 0.34, "w": 0.9, "x": 0.5, "y": 0.2, "dur": 4,
+   "fields": [
+     {"k": "num", "l": "Număr", "t": "text", "d": "1"},
+     {"k": "total", "l": "Din total", "t": "text", "d": "4"},
+     {"k": "title", "l": "Titlu", "t": "text", "d": "Combustibil pentru intestin"},
+     {"k": "text", "l": "Explicație scurtă", "t": "text", "d": "Fibrele devin acizi grași care reduc inflamația"},
+     {"k": "accent_color", "l": "Culoare accent", "t": "color", "d": "#E8A83B"}]},
+  {"id": "flow", "label": "Pași / proces", "desc": "2–4 pași legați prin săgeți, care apar pe rând (ex: Fibre → Fermentație → Acizi grași).",
+   "ar": 0.46, "w": 0.92, "x": 0.5, "y": 0.28, "dur": 4,
+   "fields": [
+     {"k": "steps", "l": "Pași (separați prin →)", "t": "text", "d": "Fibre → Fermentație → Acizi grași"},
+     {"k": "highlight_last", "l": "Evidențiază ultimul pas", "t": "bool", "d": true},
+     {"k": "accent_color", "l": "Culoare accent", "t": "color", "d": "#E8A83B"}]},
+  {"id": "lower_third", "label": "Nume și rol", "desc": "Bandă cu numele vorbitorului și rolul lui, de obicei în primele secunde.",
+   "ar": 0.24, "w": 0.74, "x": 0.43, "y": 0.58, "dur": 4,
+   "fields": [
+     {"k": "name", "l": "Nume", "t": "text", "d": "Andreea"},
+     {"k": "role", "l": "Rol", "t": "text", "d": "BioVitality · totul pentru trup, cu suflet"},
+     {"k": "accent_color", "l": "Culoare accent", "t": "color", "d": "#E8A83B"}]},
+  {"id": "cta", "label": "Final / îndemn", "desc": "Card de final cu brandul și un îndemn (ex: Urmărește-ne pentru partea a doua).",
+   "ar": 0.72, "w": 0.8, "x": 0.5, "y": 0.42, "dur": 3.5,
+   "fields": [
+     {"k": "brand", "l": "Brand", "t": "text", "d": "BioVitality"},
+     {"k": "title", "l": "Îndemn", "t": "text", "d": "Urmărește-ne"},
+     {"k": "subtitle", "l": "Detaliu", "t": "text", "d": "pentru video-ul despre axa intestin–creier"},
+     {"k": "accent_color", "l": "Culoare accent", "t": "color", "d": "#E8A83B"}]}
+]

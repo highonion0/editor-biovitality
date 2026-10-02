@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BioVitality Editor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d1611; --panel:#142019; --panel2:#1a2921; --raise:#21332a;
+  --line:rgba(241,235,220,.08); --line2:rgba(241,235,220,.15);
+  --text:#f1ebdc; --muted:rgba(241,235,220,.62); --faint:rgba(241,235,220,.38);
+  --honey:#e8a83b; --honey2:#f4c16a; --honeySoft:rgba(232,168,59,.13);
+  --sage:#94c1a0; --sageSoft:rgba(148,193,160,.13);
+  --red:#e27a64; --redSoft:rgba(226,122,100,.13);
+  --serif:'Fraunces',Georgia,serif;
+  --sans:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;
+  display:grid;grid-template-rows:60px 1fr;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+button:disabled{cursor:default;opacity:.4}
+:focus-visible{outline:2px solid var(--honey);outline-offset:2px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(241,235,220,.12);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+svg.i{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ---------- header */
+header{display:flex;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid var(--line);background:#0f1914}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+.mark{width:30px;height:30px;border-radius:9px;background:linear-gradient(145deg,#2b4a37,#1a2e22);
+  display:grid;place-items:center;color:var(--honey);box-shadow:inset 0 0 0 1px rgba(232,168,59,.25)}
+.brand b{font-family:var(--serif);font-weight:600;font-size:17px;letter-spacing:-.01em}
+.brand b em{font-style:normal;color:var(--honey)}
+.brand span{color:var(--faint);font-size:12.5px;margin-left:4px}
+.badge{display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;background:var(--panel);
+  border:1px solid var(--line2);font-size:12.5px;font-weight:600;color:var(--muted)}
+.badge .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.badge.gpu .dot{background:var(--sage);box-shadow:0 0 0 3px var(--sageSoft)}
+.badge.gpu{color:var(--text)}
+.badge.warn .dot{background:var(--honey);box-shadow:0 0 0 3px var(--honeySoft)}
+.badge.checking .dot{animation:blink 1.2s infinite}
+.hbtn{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:10px;
+  background:transparent;border:1px solid var(--line2);color:var(--muted);font-weight:600;font-size:13px}
+.hbtn:hover{background:var(--panel);color:var(--text)}
+.hbtn.icon{width:36px;padding:0;justify-content:center}
+
+/* ---------- layout */
+.app{display:grid;grid-template-columns:310px 1fr;min-height:0}
+aside{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:#0f1914}
+main{min-height:0;overflow:auto;padding:22px 26px 40px}
+
+/* drop */
+.drop{margin:16px;border:1.5px dashed rgba(232,168,59,.4);border-radius:var(--r);padding:20px 16px;text-align:center;
+  background:linear-gradient(180deg,rgba(232,168,59,.05),transparent);transition:.15s;cursor:pointer}
+.drop:hover,.drop.over{border-color:var(--honey);background:var(--honeySoft)}
+.drop .ic{width:40px;height:40px;border-radius:12px;background:var(--honeySoft);color:var(--honey);display:grid;place-items:center;margin:0 auto 10px}
+.drop b{display:block;font-weight:600;font-size:14.5px}
+.drop small{color:var(--muted);font-size:12.5px}
+.quick{margin:0 16px 16px;padding:14px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line)}
+.quick .ql{display:flex;justify-content:space-between;align-items:baseline;font-weight:700;font-size:13px;margin-bottom:10px}
+.quick .ql small{font-weight:500;color:var(--faint);font-size:11.5px}
+.sub{font-size:12px;color:var(--muted);margin:10px 0 6px;font-weight:600}
+.num{display:flex;align-items:center;background:var(--bg);border:1px solid var(--line2);border-radius:10px;height:40px;overflow:hidden}
+.num button{width:40px;height:100%;border:0;background:transparent;color:var(--muted);font-size:18px;font-weight:600}
+.num button:hover{background:var(--raise);color:var(--text)}
+.num input{flex:1;min-width:0;height:100%;border:0;background:transparent;color:var(--text);text-align:center;
+  font:600 16px var(--mono);outline:none}
+.num span{color:var(--faint);font-size:12.5px;padding-right:12px}
+.num:focus-within{border-color:var(--honey)}
+.chips{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+.chips button{flex:1;min-width:40px;height:28px;border-radius:8px;border:1px solid var(--line2);background:transparent;
+  font:500 12px var(--mono);color:var(--muted)}
+.chips button:hover{color:var(--text);border-color:var(--faint)}
+.chips button.on{background:var(--honeySoft);border-color:var(--honey);color:var(--honey)}
+.chk{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--muted);cursor:pointer;user-select:none}
+.chk input{accent-color:var(--honey);width:15px;height:15px}
+.quick .hint{margin-top:10px}
+.qhead{display:flex;justify-content:space-between;align-items:center;padding:4px 20px 8px;color:var(--faint);
+  font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+.queue{overflow:auto;padding:0 10px 16px;flex:1}
+.qitem{position:relative;display:block;width:100%;text-align:left;padding:11px 12px 12px;border-radius:12px;border:1px solid transparent;
+  background:transparent;margin-bottom:4px}
+.qitem:hover{background:var(--panel)}
+.qitem.sel{background:var(--panel2);border-color:var(--line2)}
+.qitem .nm{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:22px}
+.qitem .st{font-size:12px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:6px}
+.qitem .st .d{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+.qitem.running .st .d{background:var(--honey);animation:blink 1s infinite}
+.qitem.done .st .d{background:var(--sage)}
+.qitem.draft .st .d{background:var(--honey)}
+.qitem.error .st .d{background:var(--red)}
+.qitem .pb{height:3px;border-radius:3px;background:var(--line);margin-top:9px;overflow:hidden}
+.qitem .pb i{display:block;height:100%;background:var(--honey);border-radius:3px;transition:width .3s}
+.qitem.done .pb i{background:var(--sage)}
+.qitem .x{position:absolute;right:8px;top:8px;width:24px;height:24px;border-radius:7px;border:0;background:transparent;
+  color:var(--faint);display:none;place-items:center}
+.qitem:hover .x{display:grid}
+.qitem .x:hover{background:var(--raise);color:var(--text)}
+.qempty{color:var(--faint);font-size:12.5px;padding:6px 12px;line-height:1.5}
+
+/* ---------- empty state */
+.hero{max-width:640px;margin:8vh auto 0;text-align:center}
+.hero h1{font-family:var(--serif);font-weight:600;font-size:34px;letter-spacing:-.02em;margin:0 0 10px}
+.hero p{color:var(--muted);font-size:15.5px;line-height:1.55;margin:0 auto 26px;max-width:460px}
+.cta{display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 22px;border-radius:12px;border:0;
+  background:var(--honey);color:#241706;font-weight:700;font-size:14.5px}
+.cta:hover{background:var(--honey2)}
+.flow3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:40px;text-align:left}
+.flow3 div{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.flow3 b{display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:5px}
+.flow3 b i{font-style:normal;width:22px;height:22px;border-radius:7px;background:var(--honeySoft);color:var(--honey);
+  display:grid;place-items:center;font-size:12px;font-weight:700}
+.flow3 span{color:var(--muted);font-size:12.5px;line-height:1.5}
+
+/* ---------- job view */
+.jhead{display:flex;align-items:flex-start;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.jtitle{flex:1;min-width:240px}
+.jtitle h2{font-family:var(--serif);font-weight:600;font-size:24px;margin:0;letter-spacing:-.015em;word-break:break-word}
+.jmeta{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.pill{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--raise);color:var(--muted)}
+.pill.running{background:var(--honeySoft);color:var(--honey)}
+.pill.done{background:var(--sageSoft);color:var(--sage)}
+.pill.error{background:var(--redSoft);color:var(--red)}
+.chip{font-size:12px;color:var(--faint)}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:10px;
+  border:1px solid var(--line2);background:var(--panel);font-weight:600;font-size:13px;text-decoration:none;color:var(--text)}
+.btn:hover:not(:disabled){background:var(--raise)}
+.btn.primary{background:var(--honey);color:#241706;border-color:transparent}
+.btn.primary:hover:not(:disabled){background:var(--honey2)}
+a.btn.dis{opacity:.4;pointer-events:none}
+
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px 16px}
+.step.active{border-color:rgba(232,168,59,.45);background:linear-gradient(180deg,rgba(232,168,59,.07),var(--panel))}
+.step.error{border-color:rgba(226,122,100,.5)}
+.stop{display:flex;gap:11px;align-items:flex-start}
+.sic{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:var(--raise);color:var(--muted);
+  font-weight:700;font-size:13px;flex:none}
+.step.active .sic{background:var(--honeySoft);color:var(--honey)}
+.step.done .sic{background:var(--sageSoft);color:var(--sage)}
+.step.error .sic{background:var(--redSoft);color:var(--red)}
+.slabel{font-weight:600;font-size:14px}
+.sdet{font-size:12.5px;color:var(--muted);margin-top:2px;min-height:17px;font-variant-numeric:tabular-nums}
+.bar{height:5px;border-radius:5px;background:var(--line);margin-top:13px;overflow:hidden;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--honey);transition:width .3s}
+.step.done .bar i{background:var(--sage)}
+.step.skipped{opacity:.55}
+.bar.ind i{width:35%!important;animation:ind 1.3s ease-in-out infinite}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(232,168,59,.3);border-top-color:var(--honey);animation:rot .8s linear infinite}
+
+.errbox{display:flex;gap:12px;background:var(--redSoft);border:1px solid rgba(226,122,100,.35);border-radius:var(--r);
+  padding:14px 16px;margin-bottom:18px;color:#f3c5bb;line-height:1.5}
+.errbox b{color:var(--red)}
+
+.work{display:grid;grid-template-columns:minmax(260px,420px) 1fr;gap:16px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.chead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.chead h3{margin:0;font-size:13.5px;font-weight:700;margin-right:auto;display:flex;align-items:center;gap:8px}
+.live{width:7px;height:7px;border-radius:50%;background:var(--honey);animation:blink 1s infinite}
+.seg3{display:flex;background:var(--bg);border-radius:9px;padding:3px;gap:2px}
+.seg3 button{border:0;background:transparent;padding:5px 10px;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted)}
+.seg3 button.on{background:var(--raise);color:var(--text)}
+.player{background:#070c09;display:grid;place-items:center}
+video{display:block;width:100%;max-height:64vh;background:#070c09}
+.vnote{padding:10px 14px;font-size:12px;color:var(--faint);border-top:1px solid var(--line)}
+
+.tx{max-height:calc(64vh + 44px);overflow:auto;padding:8px}
+.seg{display:grid;grid-template-columns:52px 1fr;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer;line-height:1.5;
+  animation:fadein .35s both}
+.seg:hover{background:var(--panel2)}
+.seg .tt{font-family:var(--mono);font-size:11.5px;color:var(--faint);padding-top:2px}
+.seg .tx2{font-size:14px}
+.seg.now{background:var(--honeySoft)}
+.seg.now .tt{color:var(--honey)}
+.txempty{padding:30px 16px;text-align:center;color:var(--faint);font-size:13px;line-height:1.6}
+.count{font-size:12px;color:var(--faint);font-weight:500}
+
+details.log{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+details.log summary{padding:12px 14px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);list-style:none;display:flex;gap:8px;align-items:center}
+details.log summary::-webkit-details-marker{display:none}
+details.log[open] summary{border-bottom:1px solid var(--line)}
+.logs{max-height:240px;overflow:auto;padding:10px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--muted)}
+.logs span{color:var(--faint);margin-right:10px}
+
+/* ---------- drawer */
+.scrim{position:fixed;inset:0;background:rgba(5,9,7,.55);opacity:0;pointer-events:none;transition:.2s;z-index:20}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(400px,94vw);background:var(--panel);border-left:1px solid var(--line2);
+  transform:translateX(100%);transition:transform .25s ease;z-index:21;display:flex;flex-direction:column}
+.drawer.on{transform:none}
+.dhead{display:flex;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
+.dhead h3{margin:0 auto 0 0;font-family:var(--serif);font-weight:600;font-size:19px}
+.dbody{padding:18px 20px;overflow:auto;flex:1}
+.field{margin-bottom:22px}
+.field>label,.flabel{display:block;font-weight:700;font-size:13px;margin-bottom:8px}
+.hint{font-size:12px;color:var(--faint);margin-top:7px;line-height:1.5}
+.segs{display:flex;background:var(--bg);border-radius:10px;padding:3px;gap:3px}
+.segs button{flex:1;border:0;background:transparent;padding:8px 6px;border-radius:8px;font-weight:600;font-size:12.5px;color:var(--muted)}
+.segs button.on{background:var(--raise);color:var(--text);box-shadow:0 0 0 1px var(--line2)}
+.opts{display:grid;gap:8px}
+.opt{display:flex;justify-content:space-between;align-items:center;text-align:left;padding:11px 13px;border-radius:11px;
+  border:1px solid var(--line2);background:transparent}
+.opt b{display:block;font-size:13.5px}
+.opt small{color:var(--muted);font-size:12px}
+.opt em{font-style:normal;font-size:11.5px;color:var(--faint);font-family:var(--mono)}
+.opt.on{border-color:var(--honey);background:var(--honeySoft)}
+input[type=text]{width:100%;height:40px;border-radius:10px;border:1px solid var(--line2);background:var(--bg);color:var(--text);
+  padding:0 12px;font:inherit}
+input[type=range]{width:100%;accent-color:var(--honey)}
+.rrow{display:flex;justify-content:space-between;font-size:12px;color:var(--faint)}
+.tog{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 13px;border:1px solid var(--line2);border-radius:11px}
+.tog input{display:none}
+.tog .sw{width:40px;height:23px;border-radius:999px;background:var(--raise);position:relative;flex:none;transition:.15s;cursor:pointer}
+.tog .sw::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:var(--muted);transition:.15s}
+.tog input:checked+.sw{background:var(--honey)}
+.tog input:checked+.sw::after{left:20px;background:#241706}
+.dfoot{padding:14px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+
+/* ---------- overlays */
+.dropall{position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:rgba(9,15,11,.82);
+  opacity:0;pointer-events:none;transition:.15s}
+.dropall.on{opacity:1}
+.dropall div{border:2px dashed var(--honey);border-radius:22px;padding:48px 64px;text-align:center;background:var(--honeySoft)}
+.dropall b{font-family:var(--serif);font-size:26px;font-weight:600;display:block;margin-bottom:6px}
+.dropall span{color:var(--muted)}
+.toasts{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:40;display:grid;gap:8px}
+.toast{background:var(--raise);border:1px solid var(--line2);padding:11px 16px;border-radius:11px;font-size:13px;
+  box-shadow:0 12px 30px -10px rgba(0,0,0,.6);animation:fadein .2s both;max-width:520px}
+.conn{position:fixed;top:68px;left:50%;transform:translateX(-50%);z-index:35;background:var(--raise);border:1px solid var(--line2);
+  padding:8px 14px;border-radius:999px;font-size:12.5px;color:var(--muted);display:none}
+.conn.on{display:block}
+.closed{position:fixed;inset:0;z-index:50;background:var(--bg);display:none;place-items:center;text-align:center}
+.closed.on{display:grid}
+.closed h2{font-family:var(--serif);font-weight:600;font-size:26px;margin:0 0 8px}
+.closed p{color:var(--muted)}
+
+/* ---------- pregatire (script) */
+.draftgrid{display:grid;grid-template-columns:minmax(240px,380px) 1fr;gap:16px;align-items:start}
+.draftgrid video{display:block;width:100%;max-height:64vh;background:#070c09}
+.dbody2{padding:14px 16px 18px}
+#dScript{width:100%;min-height:260px;resize:vertical;border-radius:11px;border:1px solid var(--line2);background:var(--bg);
+  color:var(--text);font:inherit;font-size:14.5px;line-height:1.6;padding:12px 14px;outline:none}
+#dScript:focus{border-color:var(--honey)}
+.dopts{display:grid;gap:8px;margin-top:14px}
+.dopts.off{opacity:.45}
+.dact{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
+.dact .cta{height:44px}
+.dset{font-size:12px;color:var(--faint);margin-left:auto}
+/* ---------- editor subtitrari */
+.edhead{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.edhead h2{font-family:var(--serif);font-weight:600;font-size:22px;margin:0 auto 0 4px;letter-spacing:-.015em}
+.dirty{font-size:12px;color:var(--honey);font-weight:600}
+.edgrid{display:grid;grid-template-columns:minmax(260px,430px) 1fr;gap:16px;align-items:start}
+.vstage{position:relative;background:#070c09}
+.vstage video{display:block;width:100%;max-height:70vh;background:#070c09}
+.ovl{position:absolute;pointer-events:none;overflow:hidden}
+.capbox{position:absolute;transform:translate(-50%,-50%);width:max-content;text-align:center;pointer-events:auto;
+  cursor:grab;user-select:none;overflow-wrap:break-word;touch-action:none}
+.capbox:hover{outline:1px dashed rgba(241,235,220,.4);outline-offset:6px}
+.capbox.drag{cursor:grabbing;outline:1px dashed var(--honey);outline-offset:6px}
+.capbox.boxed .cl{background:var(--boxbg);padding:var(--boxpad);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.guide{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--honey);display:none}
+.guide.on{display:block}
+.tabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--line)}
+.tabs button{border:0;background:transparent;padding:8px 14px;border-radius:9px;font-weight:600;font-size:13px;color:var(--muted)}
+.tabs button.on{background:var(--raise);color:var(--text)}
+.tbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+.tb{min-width:34px;height:34px;padding:0 8px;border-radius:9px;border:1px solid var(--line2);background:transparent;
+  font-weight:700;font-size:14px;display:inline-grid;place-items:center}
+.tb:hover:not(:disabled){background:var(--raise)}
+.tb.on{background:var(--honeySoft);border-color:var(--honey);color:var(--honey)}
+.swc{width:24px;height:24px;border-radius:50%;border:2px solid rgba(0,0,0,.35);padding:0;flex:none}
+.swc.on{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--honey)}
+.swc:disabled{opacity:.35}
+.tsep{width:1px;height:22px;background:var(--line2);margin:0 3px}
+.selinfo{margin-left:auto;font-size:12px;color:var(--faint)}
+input[type=color]{width:30px;height:30px;border:1px solid var(--line2);border-radius:8px;background:transparent;padding:2px;cursor:pointer}
+input[type=color]:disabled{opacity:.35;cursor:default}
+.cues{max-height:calc(70vh - 50px);overflow:auto;padding:8px}
+.cue{padding:9px 12px 11px;border-radius:11px;border:1px solid transparent}
+.cue:hover{background:var(--panel2)}
+.cue.now{border-color:rgba(232,168,59,.4);background:var(--honeySoft)}
+.cue.hid .cwords{opacity:.4;text-decoration:line-through}
+.cuetop{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.ctime{border:0;background:transparent;font:500 11.5px var(--mono);color:var(--faint);padding:2px 0}
+.ctime:hover{color:var(--honey)}
+.cedit{margin-left:auto;border:0;background:transparent;color:var(--faint);height:26px;padding:0 8px;border-radius:7px;font-size:12px;
+  display:flex;align-items:center;gap:5px;opacity:0}
+.cue:hover .cedit,.cedit:focus-visible{opacity:1}
+.cedit:hover{background:var(--raise);color:var(--text)}
+.cwords{font-size:15px;line-height:1.95}
+.w{padding:2px 3px;border-radius:5px;cursor:pointer}
+.w:hover{background:rgba(241,235,220,.08)}
+.w.sel{background:rgba(232,168,59,.24);box-shadow:0 0 0 1px var(--honey)}
+.cinput{width:100%;min-height:58px;border-radius:9px;border:1px solid var(--honey);background:var(--bg);color:var(--text);
+  font:inherit;font-size:14.5px;line-height:1.5;padding:8px 10px;resize:vertical;outline:none}
+.cehint{font-size:11.5px;color:var(--faint);margin-top:5px}
+.stylebody{padding:16px 18px;max-height:calc(70vh + 10px);overflow:auto}
+.fontgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fcard{padding:11px 12px;border-radius:11px;border:1px solid var(--line2);background:transparent;text-align:left}
+.fcard:hover{background:var(--panel2)}
+.fcard.on{border-color:var(--honey);background:var(--honeySoft)}
+.fcard .fs{font-size:21px;display:block;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fcard small{color:var(--faint);font-size:11px}
+.colrow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.togs{display:grid;gap:8px}
+.val{color:var(--honey);font-family:var(--mono);font-size:12px}
+.btn.sm{height:30px;padding:0 10px;font-size:12px}
+@keyframes blink{50%{opacity:.35}}
+@keyframes rot{to{transform:rotate(360deg)}}
+@keyframes ind{0%{left:-35%}100%{left:100%}}
+@keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media (max-width:1100px){.work{grid-template-columns:1fr}.steps{grid-template-columns:1fr}}
+@media (max-width:760px){.app{grid-template-columns:1fr}aside{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<link rel="stylesheet" href="/static/timeline.css">
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/><path d="M5 19c3-4 6-6.5 9-8"/></svg></div>
+    <b>Bio<em>Vitality</em> Editor</b><span>v2</span>
+  </div>
+  <button class="badge checking" id="device" title=""><span class="dot"></span><span id="devLabel">Verific placa video…</span></button>
+  <button class="badge" id="engine" title=""><span class="dot"></span><span id="engLabel">Motor…</span></button>
+  <button class="hbtn" id="openOut"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Folderul cu rezultate</button>
+  <button class="hbtn icon" id="openSettings" title="Setări"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
+  <button class="hbtn icon" id="quit" title="Închide aplicația"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></button>
+</header>
+
+<div class="app">
+  <aside>
+    <div class="drop" id="drop" role="button" tabindex="0">
+      <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+      <b>Trage video-uri aici</b>
+      <small>sau apasă ca să alegi · MP4, MOV, MKV</small>
+    </div>
+    <div class="quick" id="quick"></div>
+    <div class="qhead"><span>Coada de lucru</span><span id="qcount"></span></div>
+    <div class="queue" id="queue"></div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<input type="file" id="picker" accept="video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm" multiple hidden>
+
+<div class="scrim" id="scrim"></div>
+<div class="drawer" id="drawer" aria-hidden="true">
+  <div class="dhead"><h3>Setări</h3><button class="hbtn icon" id="closeSettings" title="Închide"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="dbody" id="settingsBody"></div>
+  <div class="dfoot">Se aplică video-urilor adăugate de acum înainte.</div>
+</div>
+
+<div class="dropall" id="dropall"><div><b>Eliberează ca să adaugi</b><span>Video-urile intră în coada de lucru</span></div></div>
+<div class="toasts" id="toasts"></div>
+<div class="conn" id="conn">Reconectez la aplicație…</div>
+<div class="closed" id="closed"><div><h2>Aplicația e închisă</h2><p>Poți închide acest tab. Pornește-o din nou din scurtătura de pe Desktop.</p></div></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtT = t => { t = Math.max(0, t || 0); return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`; };
+const ICON = {
+  check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  folder: '<svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  down: '<svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+  copy: '<svg class="i" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  x: '<svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  redo: '<svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+  edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+  tl: '<svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="4" rx="1"/><rect x="3" y="11" width="11" height="4" rx="1"/><rect x="9" y="17" width="12" height="3" rx="1"/></svg>',
+  back: '<svg class="i" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+  plus: '<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+};
+
+/* ------------------------------------------------ setari */
+const DEFAULTS = { language: 'ro', quality: 'rapid', cut: 'normala', margin: 0.2, margin_after: null, words_per_caption: 5, burn_captions: true, vocabulary: 'BioVitality',
+  auto_start: false, script_retakes: true, script_offscript: true, script_captions: true };
+function loadSettings() { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('bv-settings') || '{}') }; } catch { return { ...DEFAULTS }; } }
+function saveSettings() { try { localStorage.setItem('bv-settings', JSON.stringify(S.settings)); } catch {} }
+
+const S = { jobs: new Map(), order: [], selected: null, device: null, uploads: new Map(), settings: loadSettings(),
+            mediaPick: {}, rendered: null, closed: false };
+
+/* ------------------------------------------------ conexiune live */
+let es;
+function connect() {
+  es = new EventSource('/api/events');
+  es.onmessage = e => { try { handle(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  es.onopen = () => $('#conn').classList.remove('on');
+  es.onerror = () => { if (!S.closed) $('#conn').classList.add('on'); };
+}
+function handle(ev) {
+  if (ev.type === 'snapshot') {
+    S.jobs.clear(); S.order = [];
+    for (const j of ev.jobs) { j.segments ||= []; j.log ||= []; S.jobs.set(j.id, j); S.order.push(j.id); }
+    if (ev.device) S.device = ev.device;
+    if (ev.fonts) { S.fonts = ev.fonts; injectFonts(ev.fonts); }
+    if (ev.engine) S.engine = ev.engine;
+    if (ev.templates) S.templates = ev.templates;
+    if (ev.assistant) S.assistant = ev.assistant;
+    if (!S.jobs.has(S.selected)) S.selected = S.order[S.order.length - 1] || null;
+    S.rendered = null; renderAll();
+  } else if (ev.type === 'job') {
+    const old = S.jobs.get(ev.job.id);
+    if (old) Object.assign(old, ev.job);
+    else { S.jobs.set(ev.job.id, { ...ev.job, segments: [], log: [] }); S.order.push(ev.job.id); if (!S.selected) S.selected = ev.job.id; }
+    renderSidebar(); renderMain();
+  } else if (ev.type === 'segment') {
+    const j = S.jobs.get(ev.id); if (!j) return;
+    j.segments.push(ev.seg);
+    if (S.selected === ev.id && S.rendered === ev.id) appendSeg(ev.seg, j.segments.length - 1, true);
+  } else if (ev.type === 'log') {
+    const j = S.jobs.get(ev.id); if (!j) return;
+    j.log.push(ev.entry);
+    if (S.selected === ev.id && S.rendered === ev.id) appendLog(ev.entry);
+  } else if (ev.type === 'device') {
+    S.device = ev.device; renderDevice();
+  } else if (ev.type === 'assistant') {
+    S.assistant = ev.status; if (T.on && T.tab === 'ai') renderAssistant();
+  } else if (ev.type === 'caption_default') {
+    /* stilul implicit a fost salvat */
+  } else if (ev.type === 'removed') {
+    S.jobs.delete(ev.id); S.order = S.order.filter(x => x !== ev.id);
+    if (S.selected === ev.id) { S.selected = S.order[S.order.length - 1] || null; S.rendered = null; }
+    renderAll();
+  }
+}
+
+/* ------------------------------------------------ utilitare job */
+function overall(j) {
+  if (j.status === 'done') return 100;
+  if (j.status !== 'running' || !j.stage) return 0;
+  const p = j.stages[j.stage - 1].progress;
+  return Math.round(((j.stage - 1) + (p == null ? 0.1 : p / 100)) / 3 * 100);
+}
+function statusText(j) {
+  if (j.status === 'draft') return 'Pregătit · adaugă scriptul și pornește';
+  if (j.status === 'queued') return 'În așteptare';
+  if (j.status === 'error') return 'Eroare';
+  if (j.status === 'done') return j.cut_from ? `Gata · ${j.cut_from}s → ${j.cut_to}s` : 'Gata';
+  if (j.status === 'running' && j.stage) {
+    const s = j.stages[j.stage - 1];
+    return `${s.label}${s.progress != null ? ' · ' + Math.round(s.progress) + '%' : '…'}`;
+  }
+  return 'Pornesc…';
+}
+const PILL = { draft: 'Pregătit', queued: 'În așteptare', running: 'În lucru', done: 'Gata', error: 'Eroare' };
+function mediaKinds(j) {
+  const k = ['input'];
+  if (j.cut_to != null) k.push('cut');
+  if (j.files && j.files.final) k.push('final');
+  return k;
+}
+function currentKind(j) {
+  const kinds = mediaKinds(j), pick = S.mediaPick[j.id];
+  if (pick && kinds.includes(pick)) return pick;
+  return kinds.includes('final') ? 'final' : kinds.includes('cut') ? 'cut' : 'input';
+}
+const KIND_LABEL = { input: 'Original', cut: 'Tăiat', final: 'Final' };
+
+/* ------------------------------------------------ randare */
+function renderAll() { renderDevice(); renderSidebar(); renderMain(); }
+
+function renderEngine() {
+  const e = S.engine; if (!e) return;
+  $('#engine').className = 'badge ' + (e.ok ? 'gpu' : 'warn');
+  $('#engLabel').textContent = e.label;
+  $('#engine').title = e.hint || 'Video-ul final se randează cu Remotion.';
+}
+function renderDevice() {
+  renderEngine();
+  const d = S.device || { mode: 'checking', label: 'Verific placa video…' };
+  const b = $('#device');
+  b.className = 'badge ' + (d.mode === 'gpu' ? 'gpu' : d.mode === 'checking' ? 'checking' : (d.hint ? 'warn' : ''));
+  $('#devLabel').textContent = d.label;
+  b.title = d.hint || (d.mode === 'gpu' ? 'Transcrierea rulează pe placa video NVIDIA.' : '');
+}
+
+function renderSidebar() {
+  const q = $('#queue');
+  let html = '';
+  for (const [id, u] of S.uploads) {
+    html += `<div class="qitem running"><div class="nm">${esc(u.name)}</div>
+      <div class="st"><span class="d"></span>Se încarcă · ${u.pct}%</div><div class="pb"><i style="width:${u.pct}%"></i></div></div>`;
+  }
+  for (const id of [...S.order].reverse()) {
+    const j = S.jobs.get(id); if (!j) continue;
+    html += `<button class="qitem ${j.status} ${id === S.selected ? 'sel' : ''}" data-id="${id}">
+      <div class="nm" title="${esc(j.name)}">${esc(j.name)}</div>
+      <div class="st"><span class="d"></span>${esc(statusText(j))}</div>
+      <div class="pb"><i style="width:${overall(j)}%"></i></div>
+      ${j.status !== 'running' ? `<span class="x" data-rm="${id}" title="Scoate din listă">${ICON.x}</span>` : ''}</button>`;
+  }
+  if (!html) html = `<div class="qempty">Nimic în lucru încă. Video-urile adăugate apar aici și se procesează pe rând.</div>`;
+  q.innerHTML = html;
+  const n = S.order.length; $('#qcount').textContent = n ? n : '';
+}
+
+function renderMain() {
+  if (T.on) { if (S.rendered !== 'timeline') buildTimeline(); return; }
+  if (E.on) { if (S.rendered !== 'edit') buildEditor(); return; }
+  const main = $('#main');
+  const j = S.jobs.get(S.selected);
+  if (!j) {
+    if (S.rendered !== '__empty') {
+      S.rendered = '__empty';
+      main.innerHTML = `<div class="hero">
+        <h1>Trage un video oriunde în fereastră</h1>
+        <p>Îl tai de pauze, îl transcriu și îi pun subtitrări. Vezi totul live, pas cu pas, iar rezultatul rămâne în folderul <b>output</b>.</p>
+        <button class="cta" id="heroPick">${ICON.plus} Alege video-uri</button>
+        <div class="flow3">
+          <div><b><i>1</i>Taie tăcerile</b><span>Scoate pauzele dintre fraze, ca video-ul să curgă.</span></div>
+          <div><b><i>2</i>Transcrie vorba</b><span>Textul apare live, cu momentul exact al fiecărei fraze.</span></div>
+          <div><b><i>3</i>Arde subtitrările</b><span>Iese un video gata de postat, plus fișierul .srt.</span></div>
+        </div></div>`;
+      $('#heroPick').onclick = () => $('#picker').click();
+    }
+    return;
+  }
+  if (j.status === 'draft') { if (S.rendered !== 'draft:' + j.id) buildDraft(j); else updateDraft(j); return; }
+  if (S.rendered !== j.id) buildJob(j);
+  updateJob(j);
+}
+
+function buildJob(j) {
+  S.rendered = j.id;
+  $('#main').innerHTML = `
+    <div class="jhead">
+      <div class="jtitle"><h2 id="jName"></h2><div class="jmeta"><span class="pill" id="jPill"></span><span class="chip" id="jInfo"></span></div></div>
+      <div class="acts">
+        <button class="btn" id="aFolder">${ICON.folder}Deschide folderul</button>
+        <a class="btn" id="aSrt">${ICON.down}Descarcă .srt</a>
+        <button class="btn" id="aCopy">${ICON.copy}Copiază textul</button>
+        <button class="btn" id="aRedo">${ICON.redo}Refă cu setările actuale</button>
+        <button class="btn" id="aTimeline">${ICON.tl}Timeline</button>
+        <button class="btn" id="aEdit">${ICON.edit}Editează subtitrările</button>
+        <a class="btn primary" id="aVideo">${ICON.down}Descarcă video</a>
+      </div>
+    </div>
+    <div id="jErr"></div>
+    <div class="steps" id="steps"></div>
+    <div class="work">
+      <div class="card">
+        <div class="chead"><h3>Previzualizare</h3><div class="seg3" id="kinds"></div></div>
+        <div class="player"><video id="player" controls playsinline preload="metadata"></video></div>
+        <div class="vnote" id="vnote"></div>
+      </div>
+      <div class="card">
+        <div class="chead"><h3 id="txTitle">Transcript</h3><span class="count" id="txCount"></span></div>
+        <div class="tx" id="tx"></div>
+      </div>
+    </div>
+    <details class="log" id="logBox"><summary>Jurnal tehnic <span class="count" id="logCount"></span></summary><div class="logs" id="logs"></div></details>`;
+  $('#jName').textContent = j.name;
+  $('#aFolder').onclick = () => post(`/api/open/${j.id}`).then(r => r.error && toast(r.error));
+  $('#aCopy').onclick = () => {
+    const txt = j.segments.map(s => s.text).join('\n');
+    navigator.clipboard.writeText(txt).then(() => toast('Transcriptul e copiat.'), () => toast('Nu am putut copia.'));
+  };
+  $('#aRedo').onclick = () => redo(j);
+  $('#aEdit').onclick = () => openEditor(j);
+  $('#aTimeline').onclick = () => openTimeline(j);
+  const v = $('#player');
+  v.addEventListener('timeupdate', () => highlight(j));
+  const tx = $('#tx');
+  if (j.segments.length) j.segments.forEach((s, i) => appendSeg(s, i, false));
+  else tx.innerHTML = `<div class="txempty" id="txEmpty">Textul apare aici pe măsură ce îl transcriu.</div>`;
+  tx.addEventListener('click', e => {
+    const row = e.target.closest('.seg'); if (!row) return;
+    seekTo(j, j.segments[+row.dataset.i].start);
+  });
+  j.log.forEach(appendLog);
+  S.curSrc = null;
+}
+
+function updateJob(j) {
+  const pill = $('#jPill');
+  pill.className = 'pill ' + j.status; pill.textContent = PILL[j.status] || j.status;
+  $('#jInfo').textContent = [j.settings_view, j.device].filter(Boolean).join(' · ');
+
+  const done = j.status === 'done';
+  $('#aFolder').disabled = !j.folder;
+  const srt = $('#aSrt'), vid = $('#aVideo');
+  srt.classList.toggle('dis', !(j.files && j.files.srt)); srt.href = j.files && j.files.srt ? `/download/${j.id}/srt` : '#';
+  const vk = j.files && (j.files.final ? 'final' : j.files.cut ? 'cut' : null);
+  vid.classList.toggle('dis', !(done && vk)); vid.href = done && vk ? `/download/${j.id}/${vk}` : '#';
+  $('#aCopy').disabled = !j.segments.length;
+  $('#aRedo').disabled = j.status === 'running' || j.status === 'queued';
+  $('#aEdit').disabled = !(j.status === 'done' && j.files && j.files.captions);
+  $('#aTimeline').disabled = !(j.status === 'done' && j.files && j.files.project);
+  $('#aRedo').title = 'Refac video-ul cu ' + marginText();
+
+  $('#jErr').innerHTML = j.status === 'error'
+    ? `<div class="errbox"><b>!</b><div><b>Ceva n-a mers.</b> ${esc(j.error || '')}<br><span style="color:var(--muted)">Detaliile complete sunt în jurnalul tehnic de mai jos.</span></div></div>` : '';
+
+  $('#steps').innerHTML = j.stages.map((s, i) => {
+    const st = s.status, p = s.progress;
+    const ind = st === 'active' && (p == null);
+    const w = st === 'done' ? 100 : st === 'active' && p != null ? p : 0;
+    const ic = st === 'done' ? ICON.check : st === 'error' ? '!' : st === 'active' ? '<span class="spin"></span>' : st === 'skipped' ? '–' : i + 1;
+    let det = s.detail || '';
+    if (st === 'active' && p != null) det = det ? `${det} · ${Math.round(p)}%` : `${Math.round(p)}%`;
+    if (!det) det = st === 'pending' ? 'În așteptare' : st === 'active' ? 'Se pregătește…' : st === 'skipped' ? 'Sărit' : '';
+    return `<div class="step ${st}"><div class="stop"><span class="sic">${ic}</span>
+      <div><div class="slabel">${esc(s.label)}</div><div class="sdet">${esc(det)}</div></div></div>
+      <div class="bar ${ind ? 'ind' : ''}"><i style="width:${w}%"></i></div></div>`;
+  }).join('');
+
+  // video
+  const kinds = mediaKinds(j), kind = currentKind(j);
+  $('#kinds').innerHTML = kinds.map(k => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${KIND_LABEL[k]}</button>`).join('');
+  $('#kinds').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.mediaPick[j.id] = b.dataset.k; updateJob(j); };
+  const src = `/media/${j.id}/${kind}` + (kind === 'final' && j.files.final ? `?v=${encodeURIComponent(j.files.final)}` : '');
+  if (S.curSrc !== src) {
+    const v = $('#player'), t = v.currentTime, playing = !v.paused;
+    const sameTimeline = S.curSrc && !S.curSrc.includes('/input') && kind !== 'input';
+    S.curSrc = src; v.src = src;
+    if (sameTimeline) v.addEventListener('loadedmetadata', () => { v.currentTime = t; if (playing) v.play(); }, { once: true });
+  }
+  $('#vnote').textContent = kind === 'input' ? 'Varianta originală, înainte de tăiere.'
+    : kind === 'cut' ? 'Varianta tăiată, fără subtitrări. Transcriptul e sincronizat cu ea.'
+    : 'Varianta finală, gata de postat.';
+
+  const live = j.status === 'running' && j.stage === 2;
+  $('#txTitle').innerHTML = `Transcript ${live ? '<span class="live" title="Se transcrie acum"></span>' : ''}`;
+  $('#txCount').textContent = j.segments.length ? `${j.segments.length} fragmente` : '';
+  $('#logCount').textContent = j.log.length ? `(${j.log.length})` : '';
+}
+
+function appendSeg(s, i, live) {
+  const tx = $('#tx'); if (!tx) return;
+  const empty = $('#txEmpty'); if (empty) empty.remove();
+  const nearBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 60;
+  const row = document.createElement('div');
+  row.className = 'seg'; row.dataset.i = i;
+  row.innerHTML = `<span class="tt">${fmtT(s.start)}</span><span class="tx2">${esc(s.text)}</span>`;
+  tx.appendChild(row);
+  if (live && nearBottom) tx.scrollTop = tx.scrollHeight;
+  const c = $('#txCount'); if (c) c.textContent = `${i + 1} fragmente`;
+  const cp = $('#aCopy'); if (cp) cp.disabled = false;
+}
+function appendLog(e) {
+  const l = $('#logs'); if (!l) return;
+  const d = document.createElement('div');
+  d.innerHTML = `<span>${esc(e.t)}</span>${esc(e.msg)}`;
+  l.appendChild(d); l.scrollTop = l.scrollHeight;
+}
+function highlight(j) {
+  const v = $('#player'); if (!v || currentKind(j) === 'input') return;
+  const t = v.currentTime;
+  const idx = j.segments.findIndex(s => t >= s.start && t < s.end);
+  document.querySelectorAll('.seg.now').forEach(el => { if (+el.dataset.i !== idx) el.classList.remove('now'); });
+  if (idx >= 0) {
+    const el = document.querySelector(`.seg[data-i="${idx}"]`);
+    if (el && !el.classList.contains('now')) { el.classList.add('now'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  }
+}
+function seekTo(j, t) {
+  const v = $('#player');
+  if (currentKind(j) === 'input' && mediaKinds(j).includes('cut')) {
+    S.mediaPick[j.id] = mediaKinds(j).includes('final') ? 'final' : 'cut';
+    updateJob(j);
+    v.addEventListener('loadedmetadata', () => { v.currentTime = t; v.play(); }, { once: true });
+  } else { v.currentTime = t; v.play(); }
+}
+
+/* ------------------------------------------------ incarcare */
+const OK_EXT = /\.(mp4|mov|m4v|mkv|avi|webm)$/i;
+const upQueue = []; let uploading = false;
+function addFiles(list) {
+  for (const f of list) {
+    if (!OK_EXT.test(f.name)) { toast(`„${f.name}” nu e un format video suportat.`); continue; }
+    const tmp = 'u' + Math.random().toString(36).slice(2);
+    S.uploads.set(tmp, { name: f.name, pct: 0 });
+    upQueue.push([tmp, f]);
+  }
+  renderSidebar(); pump();
+}
+function pump() {
+  if (uploading || !upQueue.length) return;
+  uploading = true;
+  const [tmp, f] = upQueue.shift();
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+  xhr.setRequestHeader('X-Filename', encodeURIComponent(f.name));
+  xhr.setRequestHeader('X-Settings', encodeURIComponent(JSON.stringify(S.settings)));
+  let lastDraw = 0;
+  xhr.upload.onprogress = e => {
+    if (!e.lengthComputable) return;
+    const u = S.uploads.get(tmp); if (u) u.pct = Math.round(e.loaded / e.total * 100);
+    if (Date.now() - lastDraw > 150) { lastDraw = Date.now(); renderSidebar(); }
+  };
+  const finish = msg => { S.uploads.delete(tmp); uploading = false; if (msg) toast(msg); renderAll(); pump(); };
+  xhr.onload = () => {
+    let r = {}; try { r = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status === 200 && r.id) { if (!E.on && !T.on) S.selected = r.id; finish(); }
+    else finish(r.error || 'Încărcarea a eșuat.');
+  };
+  xhr.onerror = () => finish('Nu mă pot conecta la aplicație.');
+  xhr.send(f);
+}
+
+/* ------------------------------------------------ setari UI */
+function renderSettings() {
+  const s = S.settings;
+  const segs = (key, opts) => `<div class="segs" data-key="${key}">${opts.map(([v, l]) => `<button data-v="${v}" class="${s[key] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  $('#settingsBody').innerHTML = `
+    <div class="field"><label class="tog"><span><b style="font-size:13.5px">Pornește automat după încărcare</b><br><small style="color:var(--muted)">Oprit = după drag & drop poți adăuga scriptul și apeși tu „Pornește”</small></span>
+      <input type="checkbox" id="autoStart" ${s.auto_start ? 'checked' : ''}><span class="sw"></span></label></div>
+    <div class="field"><span class="flabel">Limba vorbită în video</span>${segs('language', [['ro', 'Română'], ['it', 'Italiană'], ['en', 'Engleză']])}</div>
+    <div class="field"><span class="flabel">Calitatea transcrierii</span><div class="opts" data-key="quality">
+      ${[['rapid', 'Rapid', 'Bun pentru teste și volum mare', '0,5 GB'], ['echilibrat', 'Echilibrat', 'Mai puține greșeli la română', '1,5 GB'], ['precis', 'Precis', 'Cel mai bun la română · recomandat pe GPU', '3 GB']]
+        .map(([v, t, d, g]) => `<button class="opt ${s.quality === v ? 'on' : ''}" data-v="${v}"><div><b>${t}</b><small>${d}</small></div><em>${g}</em></button>`).join('')}
+    </div><div class="hint">Prima folosire a fiecărui nivel descarcă modelul o singură dată.</div></div>
+    <div class="field"><span class="flabel">Sensibilitate la pauze</span>${segs('cut', [['blanda', 'Mică'], ['normala', 'Normală'], ['agresiva', 'Mare']])}
+      <div class="hint">Mare = consideră pauză și sunetele slabe (respirații, zgomot de fundal). Respiro-ul îl setezi în stânga, sub zona de încărcare.</div></div>
+    <div class="field"><span class="flabel">Cuvinte pe ecran odată: <b id="wpcVal" style="color:var(--honey)">${s.words_per_caption}</b></span>
+      <input type="range" min="2" max="8" step="1" id="wpc" value="${s.words_per_caption}"><div class="rrow"><span>2 · dinamic</span><span>8 · liniștit</span></div></div>
+    <div class="field"><label class="tog"><span><b style="font-size:13.5px">Arde subtitrările pe video</b><br><small style="color:var(--muted)">Oprit = primești doar fișierul .srt</small></span>
+      <input type="checkbox" id="burn" ${s.burn_captions ? 'checked' : ''}><span class="sw"></span></label></div>
+    <div class="field"><label for="vocab">Cuvinte pe care să le scrie corect</label>
+      <input type="text" id="vocab" value="${esc(s.vocabulary)}" placeholder="BioVitality, Ashwagandha, …">
+      <div class="hint">Nume de produse, ingrediente sau branduri, separate prin virgulă.</div></div>`;
+  $('#settingsBody').querySelectorAll('[data-key]').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    S.settings[g.dataset.key] = b.dataset.v; saveSettings(); renderSettings();
+  }));
+  $('#wpc').oninput = e => { S.settings.words_per_caption = +e.target.value; $('#wpcVal').textContent = e.target.value; saveSettings(); };
+  $('#burn').onchange = e => { S.settings.burn_captions = e.target.checked; saveSettings(); };
+  $('#autoStart').onchange = e => { S.settings.auto_start = e.target.checked; saveSettings(); };
+  $('#vocab').oninput = e => { S.settings.vocabulary = e.target.value; saveSettings(); };
+}
+function openSettings(on) {
+  if (on) renderSettings();
+  $('#drawer').classList.toggle('on', on); $('#scrim').classList.toggle('on', on);
+  $('#drawer').setAttribute('aria-hidden', on ? 'false' : 'true');
+}
+
+/* ------------------------------------------------ pregatire: script + pornire */
+S.draftText = {};
+let draftTimer = null;
+function draftCount(txt) {
+  const w = (txt.match(/\S+/g) || []).length, f = (txt.match(/[.!?…](\s|$)/g) || []).length;
+  return w ? `${w} cuvinte · ~${Math.max(1, f)} fraze` : '';
+}
+function buildDraft(j) {
+  S.rendered = 'draft:' + j.id;
+  const txt = S.draftText[j.id] ?? (j.draft && j.draft.script) ?? '';
+  const tog = (key, title, sub) => `<label class="tog"><span><b style="font-size:13.5px">${title}</b><br><small style="color:var(--muted)">${sub}</small></span>
+    <input type="checkbox" data-opt="${key}" ${S.settings[key] ? 'checked' : ''}><span class="sw"></span></label>`;
+  $('#main').innerHTML = `
+    <div class="jhead"><div class="jtitle"><h2 id="jName"></h2><div class="jmeta"><span class="pill">Pregătit</span>
+      <span class="chip">Pornește doar când apeși tu butonul.</span></div></div></div>
+    <div class="draftgrid">
+      <div class="card"><div class="chead"><h3>Video</h3></div><video controls playsinline preload="metadata" src="/media/${j.id}/input"></video></div>
+      <div class="card">
+        <div class="chead"><h3>Script <span class="count">opțional</span></h3><span class="count" id="dCount">${draftCount(txt)}</span></div>
+        <div class="dbody2">
+          <textarea id="dScript" placeholder="Lipește aici scriptul video-ului.&#10;&#10;Programul îl folosește ca să scoată reluările și ce ai spus în afara lui, iar subtitrările vor avea exact textul tău.&#10;&#10;Fără script: tai doar pauzele și transcriu ce ai spus."></textarea>
+          <div class="dopts ${txt.trim() ? '' : 'off'}" id="dOpts">
+            ${tog('script_retakes', 'Scoate reluările', 'Dacă ai spus o frază de mai multe ori, păstrez ultima variantă')}
+            ${tog('script_offscript', 'Scoate ce nu e în script', 'Bâlbe, fraze abandonate, „stai, o iau de la capăt”')}
+            ${tog('script_captions', 'Subtitrări cu textul din script', 'Cu diacriticele și punctuația ta, nu cum a înțeles transcrierea')}
+          </div>
+          <div class="dact">
+            <button class="cta" id="dStart">▶ Pornește</button>
+            <button class="btn" id="dAll" hidden></button>
+            <span class="dset" id="dSet"></span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  $('#jName').textContent = j.name;
+  const ta = $('#dScript'); ta.value = txt;
+  ta.oninput = () => {
+    S.draftText[j.id] = ta.value;
+    $('#dCount').textContent = draftCount(ta.value);
+    $('#dOpts').classList.toggle('off', !ta.value.trim());
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => saveDraft(j.id), 600);
+  };
+  $('#main').querySelectorAll('[data-opt]').forEach(i => i.onchange = () => { S.settings[i.dataset.opt] = i.checked; saveSettings(); });
+  $('#dStart').onclick = () => startDraft(j.id);
+  $('#dAll').onclick = () => startAllDrafts(j.id);
+  updateDraft(j);
+}
+function updateDraft(j) {
+  const n = [...S.jobs.values()].filter(x => x.status === 'draft').length;
+  const all = $('#dAll'); if (all) { all.hidden = n < 2; all.textContent = `▶ Pornește toate pregătitele (${n})`; }
+  const set = $('#dSet'); if (set) set.textContent = `Setări: ${LANG_LABEL[S.settings.language] || 'RO'} · ${marginText()}`;
+}
+const LANG_LABEL = { ro: 'RO', it: 'IT', en: 'EN' };
+function saveDraft(id) {
+  const txt = S.draftText[id]; if (txt == null) return Promise.resolve();
+  return fetch(`/api/draft/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: txt }) }).catch(() => {});
+}
+async function startDraft(id) {
+  clearTimeout(draftTimer);
+  const b = $('#dStart'); if (b) b.disabled = true;
+  const script = S.draftText[id] ?? (S.jobs.get(id)?.draft?.script || '');
+  const r = await fetch(`/api/start/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ script, settings: S.settings }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  if (r.error) { toast(r.error); if (b) b.disabled = false; return; }
+  delete S.draftText[id];
+  toast(script.trim() ? 'Pornit. Tai pauzele, transcriu și potrivesc cu scriptul.' : 'Pornit fără script: tai pauzele și transcriu.');
+}
+async function startAllDrafts(id) {
+  clearTimeout(draftTimer);
+  await Promise.all(Object.keys(S.draftText).map(saveDraft));
+  const r = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings: S.settings }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  if (r.error) { toast(r.error); return; }
+  S.draftText = {};
+  toast(`Am pornit ${r.started.length} video-uri. Se procesează pe rând.`);
+}
+
+/* ------------------------------------------------ respiro la taieturi */
+const parseSec = v => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : Math.round(Math.min(3, Math.max(0, n)) * 100) / 100; };
+const showSec = v => String(v).replace('.', ',');
+function marginText() {
+  const a = S.settings.margin, b = S.settings.margin_after;
+  return b == null || b === a ? `respiro ${showSec(a)} s` : `respiro ${showSec(a)} s înainte / ${showSec(b)} s după`;
+}
+function numBox(key) {
+  return `<div class="num" data-key="${key}"><button data-d="-1" aria-label="Mai puțin">−</button>
+    <input inputmode="decimal" value="${showSec(S.settings[key])}" aria-label="Secunde"><span>sec</span>
+    <button data-d="1" aria-label="Mai mult">+</button></div>`;
+}
+function renderQuick() {
+  const s = S.settings, split = s.margin_after != null;
+  const chips = [0, 0.1, 0.2, 0.3, 0.5].map(v => `<button data-v="${v}" class="${s.margin === v ? 'on' : ''}">${showSec(v)}</button>`).join('');
+  $('#quick').innerHTML = `
+    <div class="ql">Respiro la tăieturi <small>pt. următoarele video-uri</small></div>
+    ${split ? '<div class="sub">Înainte de frază</div>' : ''}${numBox('margin')}
+    ${split ? '<div class="sub">După frază</div>' + numBox('margin_after') : `<div class="chips">${chips}</div>`}
+    <label class="chk"><input type="checkbox" id="mSplit" ${split ? 'checked' : ''}>Valori diferite înainte / după frază</label>
+    <div class="hint">Cât timp păstrez în jurul fiecărei fraze înainte să tai pauza. 0 = tăiere la fix, fără respiro.</div>`;
+  $('#quick').querySelectorAll('.num').forEach(box => {
+    const key = box.dataset.key, inp = box.querySelector('input');
+    const set = v => { if (v == null) { inp.value = showSec(S.settings[key]); return; }
+      S.settings[key] = v; saveSettings(); inp.value = showSec(v);
+      $('#quick').querySelectorAll('.chips button').forEach(b => b.classList.toggle('on', +b.dataset.v === S.settings.margin)); };
+    box.querySelectorAll('button').forEach(b => b.onclick = () => set(parseSec((S.settings[key] || 0) + (+b.dataset.d) * 0.05)));
+    inp.onchange = () => set(parseSec(inp.value));
+    inp.onkeydown = e => {
+      if (e.key === 'Enter') inp.blur();
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); set(parseSec((S.settings[key] || 0) + (e.key === 'ArrowUp' ? 0.05 : -0.05))); }
+    };
+  });
+  $('#quick').querySelectorAll('.chips button').forEach(b => b.onclick = () => { S.settings.margin = +b.dataset.v; saveSettings(); renderQuick(); });
+  $('#mSplit').onchange = e => { S.settings.margin_after = e.target.checked ? S.settings.margin : null; saveSettings(); renderQuick(); };
+}
+function redo(j) {
+  fetch(`/api/redo/${j.id}`, { method: 'POST', headers: { 'X-Settings': encodeURIComponent(JSON.stringify(S.settings)) } })
+    .then(r => r.json()).then(r => {
+      if (r.id) { S.selected = r.id; toast(`Refac „${j.name}” cu ${marginText()}.`); renderAll(); }
+      else toast(r.error || 'Nu am putut reface video-ul.');
+    }).catch(() => toast('Nu mă pot conecta la aplicație.'));
+}
+
+/* ------------------------------------------------ editor subtitrari */
+const E = { on: false };
+const T = { on: false };   // timeline-ul (logica e in /static/timeline.js)
+S.fonts = [];
+const PALETTE = ['#FFFFFF', '#E8A83B', '#FFD23F', '#94C1A0', '#3DDC84', '#4FC3F7', '#FF6B6B', '#FF8FC7'];
+const DARKS = ['#14100C', '#000000', '#1F3B2C', '#3A2A12'];
+let fontsInjected = false;
+function injectFonts(fonts) {
+  if (fontsInjected) return; fontsInjected = true;
+  const css = fonts.flatMap(f => f.files.map(([file, weight, style]) =>
+    `@font-face{font-family:'${f.id}';src:url('/fonts/${file}') format('truetype');font-weight:${weight};font-style:${style};font-display:swap}`)).join('\n');
+  const el = document.createElement('style'); el.textContent = css; document.head.appendChild(el);
+}
+const fontInfo = id => S.fonts.find(f => f.id === id) || { id: 'Arial', ratio: 1.117, files: [] };
+const hexA = (h, a) => `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const fmtT2 = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+const keyOf = (c, w) => c + ':' + w;
+
+async function openEditor(j) {
+  let cap;
+  try { const r = await fetch(`/api/captions/${j.id}`); cap = await r.json(); if (!r.ok) throw new Error(cap.error); }
+  catch (err) { toast((err && err.message) || 'Nu găsesc subtitrările acestui video.'); return; }
+  Object.assign(E, { on: true, id: j.id, name: j.name, cap, sel: new Set(), anchor: null, focus: 0, dirty: false, tab: 'text', dragging: null });
+  S.rendered = null; renderMain();
+}
+function leaveEditor() {
+  if (E.dirty && !confirm('Ai modificări nesalvate la subtitrări. Ieși fără să le salvezi?')) return false;
+  E.on = false; S.rendered = null; return true;
+}
+function markDirty() { E.dirty = true; const d = $('#eDirty'); if (d) d.textContent = '● Modificări nesalvate'; }
+
+function buildEditor() {
+  S.rendered = 'edit';
+  $('#main').innerHTML = `
+    <div class="edhead">
+      <button class="btn" id="eBack">${ICON.back}Înapoi</button>
+      <h2>Subtitrări · ${esc(E.name)}</h2>
+      <span class="dirty" id="eDirty">${E.dirty ? '● Modificări nesalvate' : ''}</span>
+      <button class="btn" id="eDefault" title="Video-urile noi vor primi automat acest font, aceste culori și această poziție">Păstrează stilul pentru video-urile noi</button>
+      <button class="btn primary" id="eSave">${ICON.check}Salvează și randează</button>
+    </div>
+    <div class="edgrid">
+      <div class="card">
+        <div class="vstage" id="vstage">
+          <video id="edVideo" controls playsinline preload="metadata" src="/media/${E.id}/cut"></video>
+          <div class="ovl" id="ovl"><div class="guide" id="guide"></div><div class="capbox" id="capbox"></div></div>
+        </div>
+        <div class="vnote">Subtitrarea arată exact cum va ieși pe video. Trage-o cu mouse-ul ca s-o muți.</div>
+      </div>
+      <div class="card">
+        <div class="tabs" id="eTabs"><button data-t="text">Text și cuvinte</button><button data-t="style">Stil</button></div>
+        <div id="ePanel"></div>
+      </div>
+    </div>`;
+  $('#eBack').onclick = () => { if (leaveEditor()) renderAll(); };
+  $('#eSave').onclick = saveEditor;
+  $('#eDefault').onclick = saveDefaultStyle;
+  $('#eTabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; E.tab = b.dataset.t; renderPanel(); };
+  const v = $('#edVideo');
+  ['loadedmetadata', 'resize'].forEach(ev => v.addEventListener(ev, layoutOverlay));
+  ['timeupdate', 'seeked', 'pause', 'play'].forEach(ev => v.addEventListener(ev, renderCap));
+  new ResizeObserver(layoutOverlay).observe($('#vstage'));
+  bindDrag();
+  renderPanel(); layoutOverlay();
+}
+
+function layoutOverlay() {
+  const v = $('#edVideo'), o = $('#ovl'); if (!v || !o) return;
+  const vw = v.videoWidth || 9, vh = v.videoHeight || 16, cw = v.clientWidth, ch = v.clientHeight;
+  const sc = Math.min(cw / vw, ch / vh), dw = vw * sc, dh = vh * sc;
+  Object.assign(o.style, { left: (v.offsetLeft + (cw - dw) / 2) + 'px', top: (v.offsetTop + (ch - dh) / 2) + 'px', width: dw + 'px', height: dh + 'px' });
+  E.dispH = dh; renderCap();
+}
+const cueAt = t => E.cap.cues.findIndex(c => !c.hidden && t >= c.start && t < c.end);
+function wordCss(w, st, forPreview) {
+  let css = '';
+  if (w.color) css += `color:${w.color};`;
+  const b = w.b ?? st.bold, it = w.i ?? st.italic;
+  if (!forPreview || b !== st.bold) css += `font-weight:${b ? 700 : 400};`;
+  if (!forPreview || it !== st.italic) css += `font-style:${it ? 'italic' : 'normal'};`;
+  if (w.u) css += 'background-image:linear-gradient(currentColor,currentColor);background-repeat:no-repeat;background-size:100% .08em;background-position:0 calc(100% - .12em);';
+  return css;
+}
+/* ---- animatia cuvant cu cuvant: ACELEASI reguli ca word_times() din core.py si ca Remotion */
+function capWordTimes(cue) {
+  const ws = cue.words, n = ws.length, out = new Array(n);
+  let i = 0;
+  while (i < n) {
+    if (ws[i].s != null && ws[i].e != null) { out[i] = [Math.max(cue.start, ws[i].s), Math.min(cue.end, Math.max(ws[i].s, ws[i].e))]; i++; continue; }
+    let j = i; while (j < n && (ws[j].s == null || ws[j].e == null)) j++;
+    const a = i > 0 ? out[i - 1][1] : cue.start; let b = j < n ? ws[j].s : cue.end; if (b < a) b = a;
+    const wts = []; for (let k = i; k < j; k++) wts.push(Math.max(1, ws[k].t.length));
+    const tot = wts.reduce((x, y) => x + y, 0); let acc = a;
+    for (let k = i; k < j; k++) { const d = (b - a) * wts[k - i] / tot; out[k] = [acc, acc + d]; acc += d; }
+    i = j;
+  }
+  return out;
+}
+function capActive(times, t) { let k = 0; for (let i = 0; i < times.length; i++) if (t >= times[i][0] - 1e-3) k = i; return k; }
+const capInk = h => { const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55 ? '#13211A' : '#FFFFFF'; };
+function capWordsHTML(st, cue, t) {
+  const anim = st.anim || 'none';
+  if (anim === 'none' || t == null || !cue) return (cue ? cue.words : []).map(w => `<span style="${wordCss(w, st, true)}">${esc(w.t)}</span>`).join(' ');
+  const times = capWordTimes(cue), k = capActive(times, t), ac = st.anim_color || '#E8A83B';
+  const since = Math.max(0, t - times[k][0]), ease = Math.min(1, since / 0.08);
+  const one = (w, i) => {
+    let css = wordCss(w, st, true);
+    if (i === k) {
+      if (anim === 'highlight' || anim === 'pop') css += `color:${ac};`;
+      if (anim === 'pop') css += `display:inline-block;transform:scale(${(1 + 0.12 * ease).toFixed(3)});`;
+      if (anim === 'pill') css += `background:${ac};color:${capInk(ac)};border-radius:.22em;padding:0 .14em;margin:0 -.14em;-webkit-text-stroke:0 transparent;`;
+      if (anim === 'reveal') css += `opacity:${ease.toFixed(2)};`;
+    } else if (anim === 'reveal' && i > k) css += 'opacity:0;';
+    return `<span style="${css}">${esc(w.t)}</span>`;
+  };
+  if (anim === 'single') return one(cue.words[k], k);
+  return cue.words.map(one).join(' ');
+}
+// Deseneaza o subtitrare peste o previzualizare (folosit de editor si de timeline) - aceleasi reguli ca Remotion.
+// t = momentul curent, pe acelasi timp ca fraza (pentru animatia cuvant cu cuvant)
+function capPaint(box, st, words, H, t, cue) {
+  const f = fontInfo(st.font);
+  box.style.display = words ? '' : 'none';
+  if (words) box.innerHTML = `<span class="cl">${capWordsHTML(st, cue || { words, start: 0, end: 0 }, cue ? t : null)}</span>`;
+  const o = st.outline / 100 * H;
+  Object.assign(box.style, {
+    left: st.pos_x * 100 + '%', top: st.pos_y * 100 + '%', maxWidth: '84%',
+    fontFamily: `'${f.id}', Arial, sans-serif`, fontSize: (st.size / 100 * H / f.ratio) + 'px', lineHeight: String(f.ratio),
+    fontWeight: st.bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal', color: st.color,
+    textTransform: st.uppercase ? 'uppercase' : 'none',
+    webkitTextStroke: st.mode === 'outline' && o > 0 ? `${2 * o}px ${st.outline_color}` : '0px transparent',
+    paintOrder: 'stroke fill',
+  });
+  box.classList.toggle('boxed', st.mode === 'box');
+  box.style.setProperty('--boxbg', hexA(st.box_color, st.box_opacity / 100));
+  box.style.setProperty('--boxpad', (0.18 * st.size / 100 * H) + 'px');
+}
+function renderCap() {
+  const box = $('#capbox'), v = $('#edVideo'); if (!box || !v || !E.on) return;
+  let i = cueAt(v.currentTime);
+  if (i < 0 && (v.paused || E.dragging)) i = E.focus;
+  const cue = E.cap.cues[i], st = E.cap.style, H = E.dispH || 300;
+  capPaint(box, st, cue ? cue.words : null, H, v.currentTime, cue);
+  // cat ruleaza, redesenez la fiecare cadru ca animatia sa fie fluida (timeupdate vine doar de ~4 ori pe secunda)
+  if (!v.paused && (st.anim || 'none') !== 'none' && !E.raf) E.raf = requestAnimationFrame(() => { E.raf = 0; renderCap(); });
+  const now = cueAt(v.currentTime);
+  document.querySelectorAll('.cue.now').forEach(el => { if (+el.dataset.c !== now) el.classList.remove('now'); });
+  if (now >= 0) { const el = document.querySelector(`.cue[data-c="${now}"]`); if (el && !el.classList.contains('now')) { el.classList.add('now'); if (!v.paused) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } }
+}
+function bindDrag() {
+  const box = $('#capbox'), ovl = $('#ovl');
+  box.addEventListener('pointerdown', e => {
+    e.preventDefault(); box.setPointerCapture(e.pointerId);
+    const r = ovl.getBoundingClientRect(), st = E.cap.style;
+    E.dragging = { dx: e.clientX - (r.left + st.pos_x * r.width), dy: e.clientY - (r.top + st.pos_y * r.height) };
+    box.classList.add('drag');
+  });
+  box.addEventListener('pointermove', e => {
+    if (!E.dragging) return;
+    const r = ovl.getBoundingClientRect();
+    let x = clamp((e.clientX - E.dragging.dx - r.left) / r.width, 0.05, 0.95);
+    const y = clamp((e.clientY - E.dragging.dy - r.top) / r.height, 0.04, 0.96);
+    const snap = Math.abs(x - 0.5) < 0.025; if (snap) x = 0.5;
+    $('#guide').classList.toggle('on', snap);
+    E.cap.style.pos_x = +x.toFixed(4); E.cap.style.pos_y = +y.toFixed(4);
+    box.style.left = x * 100 + '%'; box.style.top = y * 100 + '%';
+    markDirty();
+  });
+  const end = () => { if (!E.dragging) return; E.dragging = null; box.classList.remove('drag'); $('#guide').classList.remove('on'); };
+  box.addEventListener('pointerup', end); box.addEventListener('pointercancel', end);
+}
+
+/* ---- panoul din dreapta */
+function renderPanel() {
+  document.querySelectorAll('#eTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === E.tab));
+  const p = $('#ePanel');
+  if (E.tab === 'text') {
+    p.innerHTML = `<div id="eTbar"></div><div class="cues" id="eCues">${E.cap.cues.map(cueRow).join('')}</div>`;
+    renderToolbar(); bindCues();
+  } else {
+    const sc = p.querySelector('.stylebody')?.scrollTop || 0;
+    p.innerHTML = styleForm(); bindStyle(); p.querySelector('.stylebody').scrollTop = sc;
+  }
+}
+function listWordCss(w) {
+  let css = '';
+  if (w.color) css += `color:${w.color};`;
+  if (w.b != null) css += `font-weight:${w.b ? 800 : 400};`;
+  if (w.i) css += 'font-style:italic;';
+  if (w.u) css += 'text-decoration:underline;';
+  return css;
+}
+const wordsHTML = (c, ci) => c.words.map((w, wi) => `<span class="w ${E.sel.has(keyOf(ci, wi)) ? 'sel' : ''}" data-w="${wi}" style="${listWordCss(w)}">${esc(w.t)}</span>`).join(' ');
+const cueRow = (c, ci) => `<div class="cue ${c.hidden ? 'hid' : ''}" data-c="${ci}" title="${c.hidden ? 'Ascunsă — nu apare pe video (o arăți din Timeline → Aa Subtitrări)' : ''}"><div class="cuetop"><button class="ctime" title="Mergi la fraza asta">${fmtT2(c.start)} – ${fmtT2(c.end)}</button>
+  <button class="cedit" title="Rescrie textul (sau dublu-click pe frază)">${ICON.edit}Rescrie</button></div><div class="cwords">${wordsHTML(c, ci)}</div></div>`;
+
+function selWords() { return [...E.sel].map(k => { const [c, w] = k.split(':').map(Number); return E.cap.cues[c]?.words[w]; }).filter(Boolean); }
+function selState() {
+  const ws = selWords(), st = E.cap.style;
+  if (!ws.length) return {};
+  const col = ws.every(w => w.color === ws[0].color) ? ws[0].color : null;
+  return { b: ws.every(w => (w.b ?? st.bold)), i: ws.every(w => (w.i ?? st.italic)), u: ws.every(w => w.u), color: col };
+}
+function renderToolbar() {
+  const n = E.sel.size, dis = n ? '' : 'disabled', s = selState();
+  $('#eTbar').innerHTML = `<div class="tbar">
+    <button class="tb ${s.b ? 'on' : ''}" data-a="b" ${dis} title="Bold (Ctrl+B)"><b>B</b></button>
+    <button class="tb ${s.i ? 'on' : ''}" data-a="i" ${dis} title="Italic (Ctrl+I)"><i style="font-family:Georgia,serif">I</i></button>
+    <button class="tb ${s.u ? 'on' : ''}" data-a="u" ${dis} title="Subliniat (Ctrl+U)"><u>U</u></button>
+    <span class="tsep"></span>
+    ${PALETTE.map(c => `<button class="swc ${s.color === c ? 'on' : ''}" data-color="${c}" style="background:${c}" ${dis} title="Colorează cuvintele selectate"></button>`).join('')}
+    <input type="color" id="eColor" ${dis} value="${s.color || '#E8A83B'}" title="Altă culoare">
+    <button class="tb" data-a="clear" ${dis} title="Scoate culoarea și stilurile de pe cuvintele selectate">✕</button>
+    <span class="selinfo">${n ? `${n} ${n === 1 ? 'cuvânt selectat' : 'cuvinte selectate'}` : 'Click pe cuvinte ca să le selectezi · Shift = mai multe'}</span>
+    <button class="btn sm" data-a="${n ? 'none' : 'all'}">${n ? 'Deselectează' : 'Selectează tot'}</button></div>`;
+  const tb = $('#eTbar');
+  tb.onclick = e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    if (b.dataset.color) applyColor(b.dataset.color); else applyAction(b.dataset.a);
+  };
+  $('#eColor').oninput = e => applyColor(e.target.value.toUpperCase(), true);
+  $('#eColor').onchange = () => renderToolbar();
+}
+function refreshCues(indices) {
+  const set = new Set(indices);
+  set.forEach(ci => { const row = document.querySelector(`.cue[data-c="${ci}"] .cwords`); if (row) row.innerHTML = wordsHTML(E.cap.cues[ci], ci); });
+}
+function touchedCues() { return [...new Set([...E.sel].map(k => +k.split(':')[0]))]; }
+function applyAction(a) {
+  const st = E.cap.style;
+  if (a === 'all') { E.cap.cues.forEach((c, ci) => c.words.forEach((_, wi) => E.sel.add(keyOf(ci, wi)))); refreshCues(E.cap.cues.map((_, i) => i)); renderToolbar(); return; }
+  if (a === 'none') { const t = touchedCues(); E.sel.clear(); refreshCues(t); renderToolbar(); return; }
+  const ws = selWords(); if (!ws.length) return;
+  const s = selState();
+  ws.forEach(w => {
+    if (a === 'b') { const v = !s.b; if (v === st.bold) delete w.b; else w.b = v; }
+    if (a === 'i') { const v = !s.i; if (v === st.italic) delete w.i; else w.i = v; }
+    if (a === 'u') { if (s.u) delete w.u; else w.u = true; }
+    if (a === 'clear') { delete w.b; delete w.i; delete w.u; delete w.color; }
+  });
+  markDirty(); refreshCues(touchedCues()); renderToolbar(); renderCap();
+}
+function applyColor(c, live) {
+  selWords().forEach(w => { if (c === E.cap.style.color) delete w.color; else w.color = c; });
+  markDirty(); refreshCues(touchedCues()); if (!live) renderToolbar(); renderCap();
+}
+function bindCues() {
+  const list = $('#eCues'), v = $('#edVideo');
+  const show = ci => { E.focus = ci; if (v.paused) v.currentTime = E.cap.cues[ci].start + 0.02; renderCap(); };
+  list.onclick = e => {
+    const row = e.target.closest('.cue'); if (!row) return;
+    const ci = +row.dataset.c;
+    if (e.target.closest('.ctime')) { show(ci); return; }
+    if (e.target.closest('.cedit')) { startEdit(ci); return; }
+    const wEl = e.target.closest('.w'); if (!wEl) return;
+    const k = keyOf(ci, +wEl.dataset.w);
+    if (e.shiftKey && E.anchor) {
+      const flat = E.cap.cues.flatMap((c, i) => c.words.map((_, w) => keyOf(i, w)));
+      const [a, b] = [flat.indexOf(E.anchor), flat.indexOf(k)].sort((x, y) => x - y);
+      flat.slice(a, b + 1).forEach(x => E.sel.add(x));
+      refreshCues(E.cap.cues.map((_, i) => i));
+    } else {
+      E.sel.has(k) ? E.sel.delete(k) : E.sel.add(k);
+      wEl.classList.toggle('sel', E.sel.has(k));
+    }
+    E.anchor = k; renderToolbar(); show(ci);
+  };
+  list.ondblclick = e => { const row = e.target.closest('.cue'); if (row && e.target.closest('.cwords')) { window.getSelection()?.removeAllRanges(); startEdit(+row.dataset.c); } };
+}
+function startEdit(ci) {
+  const row = document.querySelector(`.cue[data-c="${ci}"] .cwords`); if (!row || row.querySelector('textarea')) return;
+  const cue = E.cap.cues[ci];
+  row.innerHTML = `<textarea class="cinput">${esc(cue.words.map(w => w.t).join(' '))}</textarea><div class="cehint">Enter = salvează · Esc = renunță · gol = șterge fraza</div>`;
+  const ta = row.querySelector('textarea'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  let done = false;
+  const finish = save => {
+    if (done) return; done = true;
+    if (save) commitEdit(ci, ta.value); else row.innerHTML = wordsHTML(cue, ci);
+  };
+  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finish(true); } if (e.key === 'Escape') { e.preventDefault(); finish(false); } };
+  ta.onblur = () => finish(true);
+}
+const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+function alignStyles(old, toks) {
+  const a = old.map(w => norm(w.t)), b = toks.map(norm), n = a.length, m = b.length;
+  const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let k = m - 1; k >= 0; k--) L[i][k] = a[i] && a[i] === b[k] ? L[i + 1][k + 1] + 1 : Math.max(L[i + 1][k], L[i][k + 1]);
+  const out = toks.map(t => ({ t })), usedOld = new Set(), gotNew = new Set();
+  let i = 0, k = 0;
+  while (i < n && k < m) {
+    if (a[i] && a[i] === b[k]) { const { t, ...st } = old[i]; Object.assign(out[k], st); usedOld.add(i); gotNew.add(k); i++; k++; }
+    else if (L[i + 1][k] >= L[i][k + 1]) i++; else k++;
+  }
+  if (n === m) out.forEach((w, idx) => { if (!gotNew.has(idx) && !usedOld.has(idx)) { const { t, ...st } = old[idx]; Object.assign(w, st); } });
+  return out;
+}
+function commitEdit(ci, value) {
+  const cue = E.cap.cues[ci], toks = value.trim().split(/\s+/).filter(Boolean);
+  const before = cue.words.map(w => w.t).join(' ');
+  [...E.sel].forEach(k => { if (k.startsWith(ci + ':')) E.sel.delete(k); });
+  if (!toks.length) {
+    E.cap.cues.splice(ci, 1);
+    E.sel = new Set([...E.sel].map(k => { const [c, w] = k.split(':').map(Number); return c > ci ? keyOf(c - 1, w) : k; }));
+    E.focus = Math.max(0, Math.min(E.focus, E.cap.cues.length - 1));
+    markDirty(); renderPanel(); renderCap(); toast('Am șters fraza.'); return;
+  }
+  cue.words = alignStyles(cue.words, toks);
+  if (cue.words.map(w => w.t).join(' ') !== before) markDirty();
+  const row = document.querySelector(`.cue[data-c="${ci}"] .cwords`); if (row) row.innerHTML = wordsHTML(cue, ci);
+  renderToolbar(); renderCap();
+}
+
+/* ---- tab Stil */
+function styleForm() {
+  const st = E.cap.style;
+  const sw = (key, list) => list.map(c => `<button class="swc ${st[key] === c ? 'on' : ''}" data-sk="${key}" data-c="${c}" style="background:${c}"></button>`).join('')
+    + `<input type="color" data-k="${key}" value="${st[key]}">`;
+  const seg = (key, opts) => `<div class="segs" data-seg="${key}">${opts.map(([v, l]) => `<button data-v="${v}" class="${st[key] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const tog = (key, title, sub) => `<label class="tog"><span><b style="font-size:13.5px">${title}</b>${sub ? `<br><small style="color:var(--muted)">${sub}</small>` : ''}</span>
+    <input type="checkbox" data-tog="${key}" ${st[key] ? 'checked' : ''}><span class="sw"></span></label>`;
+  return `<div class="stylebody">
+    <div class="field"><span class="flabel">Font</span><div class="fontgrid">
+      ${S.fonts.map(f => `<button class="fcard ${st.font === f.id ? 'on' : ''}" data-font="${esc(f.id)}"><span class="fs" style="font-family:'${esc(f.id)}',Arial;font-weight:${st.bold ? 700 : 400}">Subtitrare 39</span><small>${esc(f.label)}</small></button>`).join('')}
+    </div></div>
+    <div class="field"><span class="flabel">Mărime <span class="val" id="vSize">${st.size.toFixed(1)}</span></span>
+      <input type="range" min="2" max="10" step="0.1" data-k="size" value="${st.size}"><div class="rrow"><span>mic</span><span>mare</span></div></div>
+    <div class="field"><span class="flabel">Culoarea textului</span><div class="colrow">${sw('color', PALETTE)}</div>
+      <div class="hint">Culorile pe cuvinte anume le pui din tabul „Text și cuvinte”.</div></div>
+    <div class="field togs">${tog('uppercase', 'Majuscule', 'TOT TEXTUL CU LITERE MARI')}${tog('bold', 'Bold implicit', 'Pentru toate cuvintele')}${tog('italic', 'Italic implicit', 'Pentru toate cuvintele')}</div>
+    <div class="field"><span class="flabel">Evidențiere</span>${seg('mode', [['outline', 'Contur'], ['box', 'Fundal'], ['none', 'Nimic']])}
+      ${st.mode === 'outline' ? `<div style="margin-top:12px"><span class="flabel" style="font-weight:600">Grosime contur <span class="val" id="vOut">${st.outline.toFixed(2)}</span></span>
+        <input type="range" min="0.05" max="0.9" step="0.01" data-k="outline" value="${st.outline}"></div>
+        <div class="colrow" style="margin-top:8px">${sw('outline_color', DARKS.concat(['#FFFFFF']))}</div>` : ''}
+      ${st.mode === 'box' ? `<div class="colrow" style="margin-top:12px">${sw('box_color', DARKS.concat(['#FFFFFF', '#E8A83B']))}</div>
+        <div style="margin-top:12px"><span class="flabel" style="font-weight:600">Opacitate fundal <span class="val" id="vOp">${st.box_opacity}%</span></span>
+        <input type="range" min="10" max="100" step="1" data-k="box_opacity" value="${st.box_opacity}"></div>` : ''}
+    </div>
+    <div class="field"><span class="flabel">Animație cuvânt cu cuvânt</span>
+      ${seg('anim', [['none', 'Fără'], ['highlight', 'Evidențiere'], ['pop', 'Pop'], ['reveal', 'Apariție'], ['pill', 'Fundal'], ['single', 'Un cuvânt']])}
+      ${['highlight', 'pop', 'pill'].includes(st.anim) ? `<div class="colrow" style="margin-top:10px">${sw('anim_color', PALETTE)}</div>` : ''}
+      <div class="hint">${{ none: 'Textul stă nemișcat, ca până acum.', highlight: 'Cuvântul rostit se colorează — sobru, potrivit pentru conținut educativ.',
+        pop: 'Cuvântul rostit se colorează și crește puțin.', reveal: 'Cuvintele apar pe rând, pe măsură ce le spui.',
+        pill: 'Cuvântul rostit primește un fundal colorat.', single: 'Apare doar cuvântul rostit — foarte dinamic.' }[st.anim || 'none']}</div></div>
+    <div class="field"><span class="flabel">Poziție pe video</span>
+      <div class="segs" id="posPresets"><button data-y="0.18">Sus</button><button data-y="0.5">Mijloc</button><button data-y="0.66">Jos</button><button data-x="0.5">Centrează</button></div>
+      <div class="hint">Sau trage textul direct pe video, în stânga.</div></div>
+  </div>`;
+}
+function bindStyle() {
+  const st = E.cap.style, p = $('#ePanel'), again = () => { markDirty(); renderCap(); renderPanel(); };
+  p.querySelectorAll('[data-font]').forEach(b => b.onclick = () => { st.font = b.dataset.font; again(); });
+  p.querySelectorAll('[data-sk]').forEach(b => b.onclick = () => { st[b.dataset.sk] = b.dataset.c; again(); });
+  p.querySelectorAll('input[type=color][data-k]').forEach(i => { i.oninput = () => { st[i.dataset.k] = i.value.toUpperCase(); markDirty(); renderCap(); }; i.onchange = again; });
+  p.querySelectorAll('input[type=range][data-k]').forEach(i => i.oninput = () => {
+    const k = i.dataset.k; st[k] = +i.value; markDirty(); renderCap();
+    const lab = { size: ['vSize', v => v.toFixed(1)], outline: ['vOut', v => v.toFixed(2)], box_opacity: ['vOp', v => v + '%'] }[k];
+    if (lab) $('#' + lab[0]).textContent = lab[1](st[k]);
+  });
+  p.querySelectorAll('[data-tog]').forEach(i => i.onchange = () => { st[i.dataset.tog] = i.checked; again(); });
+  p.querySelectorAll('[data-seg]').forEach(g => g.onclick = e => { const b = e.target.closest('button'); if (!b) return; st[g.dataset.seg] = b.dataset.v; again(); });
+  $('#posPresets').onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.y) st.pos_y = +b.dataset.y; if (b.dataset.x) st.pos_x = +b.dataset.x; markDirty(); renderCap(); };
+}
+
+async function saveEditor() {
+  const btn = $('#eSave'); btn.disabled = true;
+  const r = await fetch(`/api/captions/${E.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(E.cap) })
+    .then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  if (r.error) { toast(r.error); btn.disabled = false; return; }
+  const id = E.id; E.dirty = false; E.on = false; S.rendered = null;
+  S.selected = id; S.mediaPick[id] = 'final';
+  renderAll(); toast('Randez video-ul cu subtitrările noi. Urmărește pasul 3.');
+}
+async function saveDefaultStyle() {
+  const r = await fetch('/api/caption-style-default', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(E.cap.style) })
+    .then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  toast(r.error || 'Gata. Video-urile noi vor primi acest stil de subtitrare.');
+}
+
+/* ------------------------------------------------ diverse */
+function post(url) { return fetch(url, { method: 'POST' }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' })); }
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  $('#toasts').appendChild(t); setTimeout(() => t.remove(), 4200);
+}
+
+$('#drop').onclick = () => $('#picker').click();
+$('#drop').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#picker').click(); } };
+$('#picker').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
+$('#queue').addEventListener('click', e => {
+  const rm = e.target.closest('[data-rm]');
+  if (rm) { e.stopPropagation(); post(`/api/remove/${rm.dataset.rm}`); return; }
+  const it = e.target.closest('.qitem[data-id]');
+  if (it) {
+    if (E.on && !leaveEditor()) return;
+    if (T.on && !leaveTimeline()) return;
+    S.selected = it.dataset.id; renderSidebar(); renderMain();
+  }
+});
+$('#openOut').onclick = () => post('/api/open-output');
+$('#openSettings').onclick = () => openSettings(true);
+$('#closeSettings').onclick = () => openSettings(false);
+$('#scrim').onclick = () => openSettings(false);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') openSettings(false);
+  if (E.on && E.tab === 'text' && (e.ctrlKey || e.metaKey) && !e.target.closest('textarea,input')) {
+    const k = e.key.toLowerCase();
+    if (['b', 'i', 'u'].includes(k)) { e.preventDefault(); applyAction(k); }
+  }
+});
+window.addEventListener('beforeunload', e => { if ((E.on && E.dirty) || (T.on && T.dirty)) { e.preventDefault(); e.returnValue = ''; } });
+$('#device').onclick = () => { if (S.device && S.device.hint) toast(S.device.hint); };
+$('#engine').onclick = () => { if (S.engine) toast(S.engine.hint || 'Video-ul final se randează cu Remotion: subtitrările ies exact ca în editor.'); };
+$('#quit').onclick = () => {
+  const busy = [...S.jobs.values()].some(j => j.status === 'running' || j.status === 'queued');
+  if (!confirm(busy ? 'Închizi aplicația? Procesarea în curs se oprește.' : 'Închizi aplicația?')) return;
+  S.closed = true; if (es) es.close();
+  fetch('/api/shutdown', { method: 'POST' }).catch(() => {}).finally(() => $('#closed').classList.add('on'));
+};
+
+// drag & drop oriunde in fereastra
+let dragDepth = 0;
+const hasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+window.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $('#dropall').classList.add('on'); });
+window.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('#dropall').classList.remove('on'); });
+window.addEventListener('drop', e => {
+  if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; $('#dropall').classList.remove('on');
+  if (T.on) { tlAddFiles([...e.dataTransfer.files], e); return; }
+  addFiles([...e.dataTransfer.files]);
+});
+
+renderQuick();
+renderAll();
+connect();
+</script>
+<script src="/static/graphics.js"></script>
+<script src="/static/timeline.js"></script>
+<script src="/static/assistant.js"></script>
+<script src="/static/sounds.js"></script>
+<script src="/static/proposals.js"></script>
+<script src="/static/captions_tl.js"></script>
+<script src="/static/look.js"></script>
+<script src="/static/safezones.js"></script>
+<script src="/static/motion.js"></script>
+</body>
+</html>

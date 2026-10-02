@@ -1,0 +1,16 @@
+{
+  "name": "biovitality-remotion",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Motorul de randare Remotion al BioVitality Editor",
+  "dependencies": {
+    "@remotion/bundler": "4.0.527",
+    "@remotion/cli": "4.0.527",
+    "@remotion/fonts": "4.0.527",
+    "@remotion/renderer": "4.0.527",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.527"
+  }
+}
