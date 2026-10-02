@@ -33,12 +33,14 @@ Preluat din chatul vechi în care a fost dezvoltată aplicația (2 octombrie 202
    - Clipuri proprii etichetate (produse, ingrediente, ambalaje).
    - Claude le propune înainte de generarea în DaVinci.
 
+## Făcute
+- **Reordonarea bucăților** din video-ul principal (tragere pe timeline, butoane ◀ ▶, Alt+←/→).
+
 ## Excluse explicit (se ocupă utilizatorul)
 - Verificarea afirmațiilor de sănătate.
 - Versiunile în italiană și engleză.
 
 ## Limitări cunoscute
-- Bucățile din video-ul principal nu pot fi reordonate. Pot fi doar tăiate, scurtate sau șterse.
 - Reducerea zgomotului folosește filtrul ffmpeg: bun pe zgomot constant, slab pe zgomote bruște.
   RNNoise nu are licență clară pentru uz comercial, deci nu e inclus.
 - Zoom-ul, keyframes-urile, tranzițiile și grafica animată merg doar cu motorul Remotion.

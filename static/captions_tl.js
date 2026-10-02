@@ -8,7 +8,7 @@ const tcKey = (c, w) => c + ':' + w;
 
 function tcCues() {
   const cap = T.pr.captions; if (!cap || !cap.cues) return [];
-  return cap.cues.map((c, i) => ({ c, i, a: tlSrcToOut(c.start), b: tlSrcToOut(c.end) })).filter(x => x.b - x.a >= 0.05);
+  return cap.cues.map((c, i) => ({ c, i, ...tlCueOut(c) })).filter(x => x.b - x.a >= 0.05);
 }
 function tcWords() {
   const cap = T.pr.captions;

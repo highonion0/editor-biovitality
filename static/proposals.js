@@ -110,7 +110,7 @@ function tlEmphasize(a, b, words, color) {
   const cap = T.pr.captions; if (!cap || !cap.cues) return 0;
   const want = new Set((words || []).map(pNorm).filter(Boolean)); let n = 0;
   cap.cues.forEach(c => {
-    const s = tlSrcToOut(c.start), e = tlSrcToOut(c.end);
+    const { a: s, b: e } = tlCueOut(c);
     if (e < a - 0.3 || s > b + 0.3) return;
     c.words.forEach(w => { if (want.has(pNorm(w.t))) { w.color = color; w.b = true; n++; } });
   });

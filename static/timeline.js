@@ -21,10 +21,38 @@ function tlOutToSrc(t) {
   }
   return { i: 0, src: 0 };
 }
+// bucatile pot fi in orice ordine (mutate); un timp dintr-o pauza taiata ajunge la bucata care urmeaza in sursa
 function tlSrcToOut(t) {
-  let acc = 0;
-  for (const s of T.segs) { if (t < s[0]) return acc; if (t <= s[1]) return acc + (t - s[0]); acc += s[1] - s[0]; }
-  return acc;
+  let acc = 0, nxt = null, last = null;
+  for (const s of T.segs) {
+    if (t >= s[0] && t <= s[1]) return acc + (t - s[0]);
+    if (s[0] > t && (!nxt || s[0] < nxt[0])) nxt = [s[0], acc];
+    if (!last || s[1] > last[0]) last = [s[1], acc + s[1] - s[0]];
+    acc += s[1] - s[0];
+  }
+  return nxt ? nxt[1] : last ? last[1] : 0;
+}
+// unde apare o fraza pe timeline (prima ei parte, daca o bucata mutata a rupt-o in doua) - ca in core.captions_to_out
+function tlCueOut(c) {
+  const runs = []; let acc = 0, prev = -2;
+  T.segs.forEach((s, i) => {
+    const x = Math.max(s[0], c.start), y = Math.min(s[1], c.end);
+    if (y - x > 1e-4) {
+      const o = acc + (x - s[0]), r = runs[runs.length - 1];
+      if (r && prev === i - 1 && x >= r.se - 1e-3) { r.b = o + (y - x); r.se = y; }
+      else runs.push({ a: o, b: o + (y - x), ss: x, se: y });
+      prev = i;
+    }
+    acc += s[1] - s[0];
+  });
+  if (!runs.length) { const a = tlSrcToOut(c.start); return { a, b: a }; }
+  return runs.reduce((m, r) => (r.ss < m.ss ? r : m));
+}
+// cat se poate lungi bucata i fara sa intre peste alta bucata din aceeasi sursa
+function tlSrcBounds(i) {
+  const s = T.segs[i]; let lo = 0, hi = T.dur;
+  T.segs.forEach((o, j) => { if (j === i) return; if (o[1] <= s[0] + 1e-3) lo = Math.max(lo, o[1]); if (o[0] >= s[1] - 1e-3) hi = Math.min(hi, o[0]); });
+  return [lo, hi];
 }
 const xOf = t => TL.PAD + t * T.pps;
 const tOf = x => (x - TL.PAD) / T.pps;
@@ -197,7 +225,7 @@ function tlRender(fit) {
   // subtitrari (doar reper)
   html += `<div class="tlane caps" data-drag="scrub" style="width:${W}px">`;
   (T.pr.captions?.cues || []).forEach((c, ci) => {
-    const a = tlSrcToOut(c.start), b = tlSrcToOut(c.end);
+    const { a, b } = tlCueOut(c);
     if (b - a < 0.05) return;
     html += `<div class="tcap ${c.hidden ? 'hid' : ''}" data-drag="capblk" data-i="${ci}" style="left:${xOf(a)}px;width:${(b - a) * T.pps}px" title="${c.hidden ? 'Ascunsă — nu apare pe video. Click = editează' : 'Click = editează fraza'}">${esc(c.words.map(w => w.t).join(' '))}</div>`;
   });
@@ -219,9 +247,9 @@ function tlRender(fit) {
   });
   tlCuts().forEach((c, k) => {
     const sel = T.sel && T.sel.kind === 'cut' && T.sel.i === k;
-    const tr = c.kind === 'mid' ? (T.trans || {})[c.i] : null;
-    html += `<button class="tcut ${sel ? 'sel' : ''} ${tr ? 'tr' : ''}" data-drag="cut" data-i="${k}" style="left:${xOf(c.at)}px"
-      title="Pauză tăiată: ${fmtS(c.len)}${tr ? ' · tranziție: ' + (TRANS.find(t => t[0] === tr.kind) || [])[1] : ''}">${tr ? '⇄' : '✂'}</button>`;
+    const tr = c.kind === 'mid' || c.kind === 'join' ? (T.trans || {})[c.i] : null;
+    html += `<button class="tcut ${sel ? 'sel' : ''} ${tr ? 'tr' : ''} ${c.kind === 'join' ? 'join' : ''}" data-drag="cut" data-i="${k}" style="left:${xOf(c.at)}px"
+      title="${c.kind === 'join' ? 'Lipitură între bucăți mutate' : 'Pauză tăiată: ' + fmtS(c.len)}${tr ? ' · tranziție: ' + (TRANS.find(t => t[0] === tr.kind) || [])[1] : ''}">${tr ? '⇄' : c.kind === 'join' ? '⋮' : '✂'}</button>`;
   });
   html += `</div>`;
   for (let l = 0; l < nAu; l++) {
@@ -242,15 +270,17 @@ function tlRender(fit) {
   tlDrawClips(); tlPlayhead();
 }
 function tlCuts() {
-  // pauzele taiate: intre bucati, la inceput si la final
-  const cuts = [], starts = tlStarts();
-  if (T.segs.length && T.segs[0][0] > 0.01) cuts.push({ kind: 'head', at: 0, len: T.segs[0][0], a: 0, b: T.segs[0][0] });
-  for (let i = 0; i + 1 < T.segs.length; i++) {
-    const gap = T.segs[i + 1][0] - T.segs[i][1];
-    if (gap > 0.005) cuts.push({ kind: 'mid', i, at: starts[i + 1], len: gap, a: T.segs[i][1], b: T.segs[i + 1][0] });
+  // pauzele taiate: intre bucati, la inceput si la final. „join” = doua bucati mutate puse una langa alta
+  const cuts = [], starts = tlStarts(), n = T.segs.length;
+  if (n) { const lo = tlSrcBounds(0)[0]; if (T.segs[0][0] - lo > 0.01) cuts.push({ kind: 'head', at: 0, len: T.segs[0][0] - lo, a: lo, b: T.segs[0][0] }); }
+  for (let i = 0; i + 1 < n; i++) {
+    const a = T.segs[i][1], b = T.segs[i + 1][0], gap = b - a;
+    const inside = T.segs.some((o, j) => j !== i && j !== i + 1 && o[0] < b && o[1] > a);
+    if (gap > 0.005 && !inside) cuts.push({ kind: 'mid', i, at: starts[i + 1], len: gap, a, b });
+    else if (Math.abs(gap) > 0.005) cuts.push({ kind: 'join', i, at: starts[i + 1], len: 0, a, b });
   }
-  const last = T.segs[T.segs.length - 1];
-  if (last && T.dur - last[1] > 0.01) cuts.push({ kind: 'tail', at: tlTotal(), len: T.dur - last[1], a: last[1], b: T.dur });
+  const last = T.segs[n - 1];
+  if (last) { const hi = tlSrcBounds(n - 1)[1]; if (hi - last[1] > 0.01) cuts.push({ kind: 'tail', at: tlTotal(), len: hi - last[1], a: last[1], b: hi }); }
   return cuts;
 }
 function tlDrawClips() {
@@ -507,10 +537,11 @@ function tlDelete() {
 }
 function tlRestoreCut(k, only) {
   const c = tlCuts()[k]; if (!c) return;
+  if (c.kind === 'join') { toast('Aici nu e o pauză tăiată, ci două bucăți mutate una lângă alta.'); return; }
   tlChange(() => {
     const r3 = v => Math.round(v * 1000) / 1000;
-    if (c.kind === 'head') T.segs[0][0] = only ? r3(Math.max(0, T.segs[0][0] - only)) : 0;
-    else if (c.kind === 'tail') { const l = T.segs[T.segs.length - 1]; l[1] = only ? r3(Math.min(T.dur, l[1] + only)) : T.dur; }
+    if (c.kind === 'head') T.segs[0][0] = only ? r3(Math.max(c.a, T.segs[0][0] - only)) : c.a;
+    else if (c.kind === 'tail') { const l = T.segs[T.segs.length - 1]; l[1] = only ? r3(Math.min(c.b, l[1] + only)) : c.b; }
     else if (only) { T.segs[c.i][1] = r3(Math.min(T.segs[c.i + 1][0], T.segs[c.i][1] + only)); }
     else { T.segs[c.i][1] = T.segs[c.i + 1][1]; T.segs.splice(c.i + 1, 1); }
     T.sel = null;
@@ -539,7 +570,7 @@ function tplText(o) {
 }
 function tplTranscriptAt(a, b) {   // ce se spune intre a si b (timp final), ca idee implicita pentru B-roll
   const cues = (T.pr.captions && T.pr.captions.cues) || [];
-  return cues.filter(c => tlSrcToOut(c.end) > a && tlSrcToOut(c.start) < b).map(c => c.words.map(w => w.t).join(' ')).join(' ').slice(0, 300);
+  return cues.filter(c => { const r = tlCueOut(c); return r.b > a && r.a < b; }).map(c => c.words.map(w => w.t).join(' ')).join(' ').slice(0, 300);
 }
 function tplDefaults(t) { const p = {}; t.fields.forEach(f => { p[f.k] = f.d; }); return p; }
 function tlNewGraphic(tid, a, b, extra) {
@@ -677,11 +708,12 @@ function tlMove(e) {
   if (!TD.moved) return;
   const k = TD.kind, i = TD.i, total = tlTotal();
   if (k === 'zoom' || k === 'zoomL' || k === 'zoomR') { tlZoomMove(dt); tlRender(); tlPaint(); return; }
+  if (k === 'clip') { tlReorderMove(e); return; }
   if (k === 'clipL') {
-    const lo = i > 0 ? T.segs[i - 1][1] : 0;
+    const lo = tlSrcBounds(i)[0];
     T.segs[i][0] = +clamp(TD.orig[0] + dt, lo, TD.orig[1] - 0.1).toFixed(3);
   } else if (k === 'clipR') {
-    const hi = i + 1 < T.segs.length ? T.segs[i + 1][0] : T.dur;
+    const hi = tlSrcBounds(i)[1];
     T.segs[i][1] = +clamp(TD.orig[1] + dt, TD.orig[0] + 0.1, hi).toFixed(3);
   } else if (k === 'ov' || k === 'au') {
     const au = k === 'au', list = au ? T.auds : T.ovs, o = list[i], len = TD.orig.end - TD.orig.start;
@@ -713,8 +745,62 @@ function tlMove(e) {
 }
 function tlUp() {
   window.removeEventListener('pointermove', tlMove);
+  if (TD && TD.kind === 'clip') {
+    const d = TD; TD = null; tlReorderEnd(d);
+    if (d.reorder && d.to !== d.i) tlMoveSeg(d.i, d.to); else if (d.reorder) tlRender();
+    return;
+  }
   if (TD && TD.moved && !TD.scrub) { tlCommit(TD.prev); tlAfter(); }
   TD = null;
+}
+
+/* ---------------------------------------------------------------- mutarea bucatilor (reordonare) */
+// tragi bucata de pe pista principala: un semn arata unde ajunge; la eliberare se muta acolo
+function tlReorderMove(e) {
+  const dx = e.clientX - TD.x0;
+  if (!TD.reorder) { if (Math.abs(dx) < 8 || T.segs.length < 2) return; TD.reorder = true; tlPause(); }
+  const el = document.querySelector(`#tInner .tclip[data-i="${TD.i}"]`);
+  if (el) { el.classList.add('moving'); el.style.transform = `translateX(${dx}px)`; }
+  const tp = tOf(e.clientX - TD.left), starts = tlStarts();
+  let to = 0;
+  T.segs.forEach((s, j) => { if (j !== TD.i && tp > starts[j] + (s[1] - s[0]) / 2) to++; });
+  TD.to = to;
+  // pozitia semnului: intre bucatile ramase, in ordinea lor
+  const rest = T.segs.map((s, j) => j).filter(j => j !== TD.i);
+  const x = to < rest.length ? starts[rest[to]] : tlTotal();
+  let mk = $('#tDropMk');
+  if (!mk) { mk = document.createElement('div'); mk.id = 'tDropMk'; mk.className = 'tdropmk'; const lane = document.querySelector('#tInner .tlane.main'); if (lane) lane.appendChild(mk); }
+  mk.style.left = xOf(x) + 'px';
+}
+function tlReorderEnd() {   // curata semnul si bucata trasa
+  const mk = $('#tDropMk'); if (mk) mk.remove();
+  document.querySelectorAll('#tInner .tclip.moving').forEach(el => { el.classList.remove('moving'); el.style.transform = ''; });
+}
+// muta bucata `from` pe pozitia `to`. Suprapunerile, zoom-urile si sunetele aflate in intregime pe o bucata
+// se muta odata cu ea; subtitrarile (pe timpul sursei) o urmeaza singure; tranzitia de dupa bucata merge cu ea.
+function tlMoveSeg(from, to) {
+  const n = T.segs.length;
+  to = clamp(to, 0, n - 1);
+  if (from === to || !T.segs[from]) return;
+  tlChange(() => {
+    const oldStarts = tlStarts(), lens = T.segs.map(s => s[1] - s[0]), ids = T.segs.map((_, j) => j);
+    const tr = {}; Object.entries(T.trans || {}).forEach(([k, v]) => { tr[k] = v; });
+    const [seg] = T.segs.splice(from, 1); T.segs.splice(to, 0, seg);
+    const [id] = ids.splice(from, 1); ids.splice(to, 0, id);
+    const newStarts = tlStarts(), delta = {};
+    ids.forEach((old, j) => { delta[old] = newStarts[j] - oldStarts[old]; });
+    const owner = it => {   // bucata (indice vechi) pe care sta elementul in intregime
+      for (let j = 0; j < n; j++) if (it.start >= oldStarts[j] - 1e-3 && it.end <= oldStarts[j] + lens[j] + 1e-3) return j;
+      return -1;
+    };
+    const shift = it => { const j = owner(it); if (j < 0 || !delta[j]) return; it.start = +(it.start + delta[j]).toFixed(3); it.end = +(it.end + delta[j]).toFixed(3); };
+    T.ovs.forEach(shift); T.auds.forEach(shift); (T.zooms || []).forEach(shift);
+    const nt = {};
+    Object.entries(tr).forEach(([k, v]) => { const j = ids.indexOf(+k); if (j >= 0 && j + 1 < n) nt[j] = v; });
+    T.trans = nt;
+    T.sel = { kind: 'clip', i: to };
+  });
+  toast(`Am mutat bucata pe poziția ${to + 1} din ${n}.`);
 }
 
 /* ---------------------------------------------------------------- tras suprapunerile pe previzualizare */
@@ -843,25 +929,37 @@ function tlInspector() {
   if (sel && sel.kind === 'clip' && T.segs[sel.i]) {
     const s = T.segs[sel.i];
     p.innerHTML = `<h4>Bucata ${sel.i + 1} din ${T.segs.length}</h4>
-      <div class="sub2">Din video-ul original: ${fmtTC(s[0])} – ${fmtTC(s[1])} · durează ${fmtS(s[1] - s[0])}.<br>Trage de marginile ei pe timeline ca s-o lungești sau s-o scurtezi — poți intra și în porțiunea tăiată.</div>
+      <div class="sub2">Din video-ul original: ${fmtTC(s[0])} – ${fmtTC(s[1])} · durează ${fmtS(s[1] - s[0])}.<br>Trage de marginile ei pe timeline ca s-o lungești sau s-o scurtezi — poți intra și în porțiunea tăiată.
+        Trage de mijlocul ei ca s-o muți în altă parte a video-ului.</div>
       <div class="kv"><label>Început</label><input class="tnum" id="iA" value="${s[0].toFixed(2)}"><span></span>
         <label>Sfârșit</label><input class="tnum" id="iB" value="${s[1].toFixed(2)}"><span></span></div>
-      <div class="row"><button class="tbtn" id="iSplit">✂ Taie la cursor</button><button class="tbtn" id="iDel">🗑 Șterge bucata</button></div>`;
+      <div class="row"><button class="tbtn" id="iSplit">✂ Taie la cursor</button><button class="tbtn" id="iDel">🗑 Șterge bucata</button></div>
+      <div class="row"><button class="tbtn" id="iEarly" ${sel.i ? '' : 'disabled'}>◀ Mută mai devreme</button>
+        <button class="tbtn" id="iLate" ${sel.i + 1 < T.segs.length ? '' : 'disabled'}>Mută mai târziu ▶</button></div>`;
     const setEdge = (ix, v) => tlChange(() => {
       const n = parseFloat(String(v).replace(',', '.')); if (isNaN(n)) return;
-      const lo = ix === 0 ? (sel.i > 0 ? T.segs[sel.i - 1][1] : 0) : s[0] + 0.1;
-      const hi = ix === 0 ? s[1] - 0.1 : (sel.i + 1 < T.segs.length ? T.segs[sel.i + 1][0] : T.dur);
+      const lo = ix === 0 ? tlSrcBounds(sel.i)[0] : s[0] + 0.1;
+      const hi = ix === 0 ? s[1] - 0.1 : tlSrcBounds(sel.i)[1];
       T.segs[sel.i][ix] = +clamp(n, lo, hi).toFixed(3);
     });
     $('#iA').onchange = e => setEdge(0, e.target.value);
     $('#iB').onchange = e => setEdge(1, e.target.value);
     $('#iSplit').onclick = tlSplit; $('#iDel').onclick = tlDelete;
+    $('#iEarly').onclick = () => tlMoveSeg(sel.i, sel.i - 1);
+    $('#iLate').onclick = () => tlMoveSeg(sel.i, sel.i + 1);
   } else if (sel && sel.kind === 'zoom' && T.zooms[sel.i]) {
     p.innerHTML = moZoomPanel(T.zooms[sel.i], sel.i);
     moBindZoom(p, T.zooms[sel.i], sel.i);
   } else if (sel && sel.kind === 'cut' && tlCuts()[sel.i]) {
     const c = tlCuts()[sel.i];
     const where = c.kind === 'head' ? 'la începutul video-ului' : c.kind === 'tail' ? 'la finalul video-ului' : 'între două bucăți';
+    if (c.kind === 'join') {
+      p.innerHTML = `<h4>⋮ Lipitură</h4>
+        <div class="sub2">Aici se întâlnesc două bucăți pe care le-ai mutat (bucata ${c.i + 1} și bucata ${c.i + 2}). Poți pune o tranziție între ele.</div>
+        ${moTransPanel(c.i)}`;
+      moBindTrans(p, c.i);
+      return;
+    }
     p.innerHTML = `<h4>✂ Pauză tăiată</h4>
       <div class="sub2">${fmtS(c.len)} scoase ${where} (în original de la ${fmtTC(c.a)} la ${fmtTC(c.b)}).</div>
       <div class="row"><button class="tbtn" id="iRestore">↩ Readuce toată pauza</button>
@@ -1050,14 +1148,14 @@ function tlInspector() {
     $('#iDup').onclick = () => { T.clip = { kind: 'au', item: deep(a) }; tlPasteAt(a.end); };
     $('#iDel').onclick = tlDelete;
   } else {
-    const cuts = tlCuts();
+    const cuts = tlCuts().filter(c => c.kind !== 'join');
     p.innerHTML = `<h4>${T.segs.length} ${T.segs.length === 1 ? 'bucată' : 'bucăți'} · ${fmtTC(tlTotal())}</h4>
       <div class="sub2">${cuts.length} ${cuts.length === 1 ? 'pauză tăiată' : 'pauze tăiate'} (${fmtS(cuts.reduce((n, c) => n + c.len, 0))}). Click pe un ✂ ca s-o readuci, pe o bucată ca s-o ajustezi, pe o suprapunere ca s-o reglezi.</div>
       ${szPanelHTML()}
       ${T.pr.captions && T.pr.captions.cues && T.pr.captions.cues.length ? `<div class="capq"><b>Subtitrări</b>
         <div class="segs" id="capPos"><button data-y="0.18">Sus</button><button data-y="0.5">Mijloc</button><button data-y="0.66">Jos</button></div>
         <span class="hint" style="margin:0">sau trage subtitrarea pe video — se mută toate odată</span></div>` : ''}
-      <div class="keys"><kbd>Space</kbd><span>play / pauză</span><kbd>Z</kbd><span>zoom la cursor</span><kbd>S</kbd><span>taie bucata la cursor</span>
+      <div class="keys"><kbd>Space</kbd><span>play / pauză</span><kbd>Z</kbd><span>zoom la cursor</span><kbd>S</kbd><span>taie bucata la cursor</span><kbd>Alt ←/→</kbd><span>mută bucata selectată</span>
         <kbd>Delete</kbd><span>șterge ce e selectat</span><kbd>← →</kbd><span>un cadru (Shift = o secundă)</span>
         <kbd>Ctrl+C / V</kbd><span>copiază / lipește la cursor</span>
         <kbd>Ctrl+Z / Y</kbd><span>anulează / refă</span></div>
@@ -1127,6 +1225,7 @@ document.addEventListener('keydown', e => {
   else if (!mod && k === 'z') { e.preventDefault(); moAddZoom(); }
   else if ((k === 'delete' || k === 'backspace') && T.tab === 'cap' && TC.sel.size) { e.preventDefault(); tcDeleteWords(); }
   else if (k === 'delete' || k === 'backspace') { e.preventDefault(); tlDelete(); }
+  else if (e.altKey && (k === 'arrowleft' || k === 'arrowright') && T.sel && T.sel.kind === 'clip') { e.preventDefault(); tlMoveSeg(T.sel.i, T.sel.i + (k === 'arrowleft' ? -1 : 1)); }
   else if (k === 'arrowleft' || k === 'arrowright') { e.preventDefault(); tlPause(); tlSeek(T.t + (k === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 1 : 1 / T.pr.fps)); }
   else if (k === 'home') { e.preventDefault(); tlSeek(0); }
   else if (k === 'escape') { T.sel = null; tlRender(); tlInspector(); tlPaint(); }

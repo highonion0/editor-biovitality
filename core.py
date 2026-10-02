@@ -690,7 +690,8 @@ def burn(src, ass, dst, report):
 
 # ------------------------------------------------------------ proiectul (etapa 1)
 # Sursa adevarului pentru fiecare video e project.json:
-#   segments  = bucatile pastrate, in timpul video-ului SURSA (secunde)
+#   segments  = bucatile pastrate, in timpul video-ului SURSA (secunde), in ordinea de pe timeline
+#               (de obicei ca in sursa, dar pot fi mutate)
 #   captions  = subtitrarile, tot in timpul SURSA -> raman corecte daca schimbi taieturile
 #   overlays  = poze / video-uri suprapuse (timeline-ul din etapa 2)
 REMOTION_DIR = APP_DIR / "remotion"
@@ -723,15 +724,20 @@ def seg_total(segs):
     return sum(b - a for a, b in segs)
 
 def src_to_out(t, segs):
-    """Timp in sursa -> timp pe timeline-ul final (in pauzele taiate -> inceputul bucatii urmatoare)."""
-    acc = 0.0
+    """Timp in sursa -> timp pe timeline-ul final. Bucatile pot fi in orice ordine (mutate de utilizator).
+    Un timp dintr-o pauza taiata ajunge la inceputul bucatii care urmeaza in sursa."""
+    acc, nxt, last = 0.0, None, None
     for a, b in segs:
-        if t < a:
-            return acc
-        if t <= b:
+        if a <= t <= b:
             return acc + (t - a)
+        if a > t and (nxt is None or a < nxt[0]):
+            nxt = (a, acc)
+        if last is None or b > last[0]:
+            last = (b, acc + (b - a))
         acc += b - a
-    return acc
+    if nxt:
+        return nxt[1]
+    return last[1] if last else 0.0
 
 def out_to_src(t, segs, end=False):
     """Timp pe timeline-ul final -> timp in sursa."""
@@ -743,18 +749,57 @@ def out_to_src(t, segs, end=False):
         acc += d
     return segs[-1][1] if segs else t
 
+def _cue_runs(start, end, segs):
+    """Portiunile unei fraze pe timeline-ul final: [out_a, out_b, [(src_a, src_b, out_a), ...]].
+    Bucatile vecine pe timeline care merg inainte in sursa raman o singura portiune;
+    o fraza taiata in doua de o bucata mutata devine doua portiuni."""
+    runs, acc, prev = [], 0.0, None
+    for i, (a, b) in enumerate(segs):
+        x, y = max(a, start), min(b, end)
+        if y - x > 1e-4:
+            o = acc + (x - a)
+            if runs and prev == i - 1 and x >= runs[-1][2][-1][1] - 1e-3:
+                runs[-1][1] = o + (y - x)
+                runs[-1][2].append((x, y, o))
+            else:
+                runs.append([o, o + (y - x), [(x, y, o)]])
+            prev = i
+        acc += b - a
+    return runs
+
+def _run_map(t, run):
+    pieces = run[2]
+    for x, y, o in pieces:
+        if t < x:
+            return o                       # in pauza dinaintea bucatii -> lipit de inceputul ei
+        if t <= y:
+            return o + (t - x)
+    return run[1]
+
 def captions_to_out(cap, segs):
     out = []
     for c in cap["cues"]:
-        s, e = src_to_out(c["start"], segs), src_to_out(c["end"], segs)
-        if e - s >= 0.05:
+        runs = _cue_runs(c["start"], c["end"], segs)
+        if len(runs) > 1:                  # fraza rupta de o bucata mutata: cuvintele merg cu bucata lor
+            runs.sort(key=lambda r: r[2][0][0])
+        for k, run in enumerate(runs):
+            lo = run[2][0][0]
+            hi = runs[k + 1][2][0][0] if k + 1 < len(runs) else float("inf")
             words = []
             for w in c["words"]:
-                w = dict(w)
                 if "s" in w and "e" in w:
-                    w["s"], w["e"] = round(src_to_out(w["s"], segs), 3), round(src_to_out(w["e"], segs), 3)
+                    mid = (w["s"] + w["e"]) / 2
+                    if len(runs) > 1 and not (lo - 1e-3 <= mid < hi or (k == 0 and mid < lo)):
+                        continue
+                    w = dict(w)
+                    w["s"], w["e"] = round(_run_map(w["s"], run), 3), round(_run_map(w["e"], run), 3)
+                elif len(runs) > 1 and k:
+                    continue
                 words.append(w)
-            out.append({**c, "start": round(s, 3), "end": round(e, 3), "words": words})
+            s, e = run[0], run[1]
+            if words and e - s >= 0.05:
+                out.append({**c, "start": round(s, 3), "end": round(e, 3), "words": words})
+    out.sort(key=lambda c: c["start"])
     return {"version": 1, "style": cap["style"], "cues": out}
 
 def captions_from_out(cap_out, segs):
@@ -819,7 +864,8 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
 ASSET_EXT = IMAGE_EXT | VIDEO_EXT | AUDIO_EXT
 
 def clean_segments(raw, duration):
-    """Bucatile pastrate: sortate, fara suprapuneri, in interiorul sursei."""
+    """Bucatile pastrate, in ordinea de pe timeline (pot fi mutate), in interiorul sursei.
+    Doua bucati nu pot folosi aceeasi portiune din sursa; daca se suprapun, revin la ordinea din sursa."""
     segs = []
     for x in (raw or [])[:2000]:
         try:
@@ -829,10 +875,12 @@ def clean_segments(raw, duration):
         a, b = max(0.0, a), min(duration, b)
         if b - a >= 0.04:
             segs.append([a, b])
-    segs.sort()
+    srt = sorted(segs)
+    if any(srt[i + 1][0] < srt[i][1] - 1e-3 for i in range(len(srt) - 1)):
+        segs = srt
     out = []
     for a, b in segs:
-        if out and a <= out[-1][1] + 1e-3:
+        if out and out[-1][0] <= a <= out[-1][1] + 1e-3:      # lipite in sursa -> o singura bucata
             out[-1][1] = max(out[-1][1], b)
         else:
             out.append([a, b])

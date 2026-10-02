@@ -17,6 +17,14 @@ Vezi totul live, într-o interfață în browser. Rulează doar pe calculatorul 
   `video_taiat.mp4`, `video_final.mp4` (cu subtitrări), `subtitrari.srt`, `transcript.txt`.
 - Închizi aplicația din butonul de pornire/oprire din dreapta sus.
 
+## Mutarea bucăților (reordonare)
+În Timeline, **trage o bucată de pe pista VIDEO** în stânga sau în dreapta. Un semn galben arată unde ajunge.
+Alternativ, selectează bucata și apasă **◀ Mută mai devreme / Mută mai târziu ▶** sau **Alt+← / Alt+→**.
+- Subtitrările merg singure cu bucata lor.
+- Pozele, graficele, zoom-urile și sunetele aflate **în întregime** pe bucata mutată se mută odată cu ea.
+  Cele care trec peste mai multe bucăți (de ex. muzica de fundal) rămân pe loc.
+- Între două bucăți mutate una lângă alta apare semnul **⋮**: click pe el ca să pui o tranziție.
+
 ## Mișcare: zoom, keyframes, tranziții (doar cu motorul Remotion)
 - **🔍 Zoom** (sau tasta **Z**): bloc de zoom pe pista lui, la cursor. Stil **Punch / Lin / Apropiere**, cât de mult (1,05–1,6×),
   iar cu zoom-ul selectat **click pe video** alege punctul pe care se centrează. Claude îl poate propune și pune.
