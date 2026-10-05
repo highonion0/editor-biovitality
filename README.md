@@ -21,7 +21,7 @@ Vezi totul live, într-o interfață în browser. Rulează doar pe calculatorul 
 
 ## 📎 Materiale obligatorii (la încărcare)
 Pe ecranul unde adaugi scriptul, înainte de „▶ Pornește”, tragi pozele / clipurile care trebuie să apară sigur.
-- La fiecare poți scrie **unde**: „când zic de ashwagandha”, „la început”, „la final”, „0:12”.
+- La fiecare poți scrie **unde**: „când zic de ashwagandha”, „la început”, „la mijloc”, „la final”, „0:12”.
 - Alegi **cum apare**: ▣ Mic peste video, ⛶ Tot ecranul sau 🧍 Tu peste el.
 - După transcriere, aplicația le pune singură pe timeline. Fără indicație, locul îl alege Claude (cu cheia API).
 - Ce nu-și găsește locul apare în Timeline, la Proprietăți, ca „📎 de pus”: muți cursorul și apeși pe nume.
@@ -38,6 +38,7 @@ La **Ce se vede din tine**: **Zoom pe tine** și **Încadrare** (stânga ↔ dre
 **`instaleaza_decupare.bat`** (~250 MB: onnxruntime pentru placa NVIDIA + modelul de decupare RobustVideoMatting, 15 MB).
 Se decupează doar porțiunea în care ești peste poză, nu tot video-ul; în previzualizare se face când alegi forma, iar la randare singur.
 Fără instalare, la randare apari într-o fereastră verticală. (Licența modelului: GPL-3.0 — folosire liberă, inclusiv comercială.)
+Dacă vreodată rulezi din nou `setup_windows.bat`, rulează după el și `instaleaza_decupare.bat`, ca decuparea să meargă tot pe placa video.
 
 ## 📚 Biblioteca ta (tabul „📚 Bibliotecă”)
 - **🖼 Poze și clipuri:** alegi folderul cu materialele tale (logo, produse, ingrediente, ambalaje, B-roll).

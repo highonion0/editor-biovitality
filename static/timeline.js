@@ -661,9 +661,15 @@ async function cutFetch(o, make) {
   if (make) { o._cut = { key, busy: true }; tlInspector(); }
   const r = await fetch(`/api/cutout/${T.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ start: o.start, end: o.end, segments: T.segs, make }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  if (!make && o._cut && o._cut.busy) return;          // intre timp a pornit decuparea; raspunsul ei e cel care conteaza
   o._cut = { key, url: r.url || null, error: r.error || null };
   if (make && r.error) toast(r.error);
   tlPaint(); if (T.sel && T.sel.kind === 'ov' && T.ovs[T.sel.i] === o) tlInspector();
+}
+// alegi forma „✂ Decupat” -> o pregatesc imediat (si prima data in sesiune, cand starea decuparii nu e inca citita)
+async function cutAuto(o) {
+  if (!S.cutout) S.cutout = await fetch('/api/cutout-status').then(r => r.json()).catch(() => null);
+  if (S.cutout && S.cutout.ok && !cutReady(o) && !(o._cut && o._cut.busy)) cutFetch(o, true);
 }
 function cutPanel(o) {
   if (!S.cutout) { fetch('/api/cutout-status').then(r => r.json()).then(s => { S.cutout = s; tlInspector(); }).catch(() => {}); return '<span class="sub2">…</span>'; }
@@ -729,7 +735,7 @@ function pipBind(p, o) {
   });
   p.querySelectorAll('[data-shape]').forEach(b => b.onclick = () => {
     tlChange(() => { o.pip.shape = b.dataset.shape; if (b.dataset.shape === 'cut' && o.pip.w < 0.7) o.pip.w = 0.8; });
-    if (b.dataset.shape === 'cut' && S.cutout && S.cutout.ok && !cutReady(o)) cutFetch(o, true);   // o pregatesc imediat
+    if (b.dataset.shape === 'cut') cutAuto(o);
   });
   const cm = $('#cutMake', p); if (cm) cm.onclick = () => cutFetch(o, true);
   p.querySelectorAll('[data-ppos]').forEach(b => b.onclick = () => tlChange(() => { const [x, y] = b.dataset.ppos.split(',').map(Number); pipSet(o, { x, y }); }));

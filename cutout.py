@@ -107,6 +107,7 @@ def make_clip(job_dir, project, start, end, segments=None, report=None):
                             "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "30",
                             "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-auto-alt-ref", "0", str(tmp)],
                            stdin=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=core.NO_WINDOW)
+    enc_err = core.drain(enc.stderr)
     total = max(1, int(sum(b - a for a, b in pieces) * fps))
     done, size = 0, tw * th * 3
     try:
@@ -133,7 +134,7 @@ def make_clip(job_dir, project, start, end, segments=None, report=None):
             dec.stdout.close()
             dec.wait()
         enc.stdin.close()
-        err = enc.stderr.read().decode("utf-8", "replace")
+        err = enc_err()
         if enc.wait() != 0 or not tmp.exists():
             raise RuntimeError("Nu am putut salva clipul decupat. " + err[-300:])
     except Exception:
@@ -143,10 +144,10 @@ def make_clip(job_dir, project, start, end, segments=None, report=None):
             pass
         tmp.unlink(missing_ok=True)
         raise
-    tmp.replace(out)
+    core.replace_file(tmp, out)
     for old in out.parent.glob("_decupat_*.webm"):     # pastrez doar decuparile folosite in proiect
         if old != out and not _in_use(job_dir, old.name):
-            old.unlink(missing_ok=True)
+            core.remove_file(old)                       # una inca deschisa in previzualizare se sterge data viitoare
     return out
 
 

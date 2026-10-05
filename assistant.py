@@ -520,14 +520,17 @@ def save_caption(job_dir, text):
     text = str(text or "").replace("\r\n", "\n").strip()[:5000]
     f = Path(job_dir) / CAPTION_FILE
     if text:
-        f.write_text(text.replace("\n", "\r\n") + "\r\n", encoding="utf-8-sig")   # BOM + CRLF: diacriticele si randurile arata bine in Notepad
+        # BOM + CRLF: diacriticele si randurile arata bine in Notepad. Scris ca bytes: write_text pe Windows ar face din \r\n -> \r\r\n
+        f.write_bytes(("\ufeff" + text.replace("\n", "\r\n") + "\r\n").encode("utf-8"))
     else:
         f.unlink(missing_ok=True)
     return text
 
 def load_caption(job_dir):
     try:
-        return (Path(job_dir) / CAPTION_FILE).read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip()
+        raw = (Path(job_dir) / CAPTION_FILE).read_bytes().decode("utf-8-sig", "replace")
+        # \r\r\n = scris de versiunea veche pe Windows (randurile se dublau la fiecare salvare)
+        return raw.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "\n").strip()
     except OSError:
         return ""
 

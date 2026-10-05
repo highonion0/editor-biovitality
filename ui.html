@@ -252,6 +252,8 @@ input[type=range]{width:100%;accent-color:var(--honey)}
 #dScript:focus{border-color:var(--honey)}
 .dopts{display:grid;gap:8px;margin-top:14px}
 .dopts.off{opacity:.45}
+.dcutnote{display:none;color:var(--muted);font-size:12px}
+#dCutOpts.off .dcutnote{display:block}
 .dact{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
 .dact .cta{height:44px}
 .dset{font-size:12px;color:var(--faint);margin-left:auto}
@@ -787,8 +789,10 @@ function buildDraft(j) {
           ${tog('autocut', '✂ Taie automat pauzele', 'Oprit = video-ul rămâne întreg și îl editezi tu în Timeline (acolo poți tăia pauzele doar unde vrei)')}
           <textarea id="dScript" placeholder="Lipește aici scriptul video-ului.&#10;&#10;Programul îl folosește ca să scoată reluările și ce ai spus în afara lui, iar subtitrările vor avea exact textul tău.&#10;&#10;Fără script: tai doar pauzele și transcriu ce ai spus."></textarea>
           <div class="dopts ${txt.trim() ? '' : 'off'}" id="dOpts">
-            ${tog('script_retakes', 'Scoate reluările', 'Dacă ai spus o frază de mai multe ori, păstrez ultima variantă')}
-            ${tog('script_offscript', 'Scoate ce nu e în script', 'Bâlbe, fraze abandonate, „stai, o iau de la capăt”')}
+            <div class="dopts ${S.settings.autocut ? '' : 'off'}" id="dCutOpts" style="margin-top:0">
+              ${tog('script_retakes', 'Scoate reluările', 'Dacă ai spus o frază de mai multe ori, păstrez ultima variantă')}
+              ${tog('script_offscript', 'Scoate ce nu e în script', 'Bâlbe, fraze abandonate, „stai, o iau de la capăt”')}
+              <small class="dcutnote">Cu „Taie automat pauzele” oprit, nu tai nimic: scriptul e folosit doar pentru subtitrări.</small></div>
             ${tog('script_captions', 'Subtitrări cu textul din script', 'Cu diacriticele și punctuația ta, nu cum a înțeles transcrierea')}
           </div>
           ${matHTML(j)}
@@ -809,7 +813,10 @@ function buildDraft(j) {
     clearTimeout(draftTimer);
     draftTimer = setTimeout(() => saveDraft(j.id), 600);
   };
-  $('#main').querySelectorAll('[data-opt]').forEach(i => i.onchange = () => { S.settings[i.dataset.opt] = i.checked; saveSettings(); });
+  $('#main').querySelectorAll('[data-opt]').forEach(i => i.onchange = () => {
+    S.settings[i.dataset.opt] = i.checked; saveSettings();
+    if (i.dataset.opt === 'autocut') $('#dCutOpts').classList.toggle('off', !i.checked);
+  });
   $('#dStart').onclick = () => startDraft(j.id);
   matBind(j);
   $('#dAll').onclick = () => startAllDrafts(j.id);

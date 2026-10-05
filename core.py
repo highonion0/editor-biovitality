@@ -16,6 +16,7 @@ import shutil
 import sysconfig
 import subprocess
 import threading
+import time
 from pathlib import Path
 from urllib.parse import quote as urllib_quote
 
@@ -508,6 +509,36 @@ def _short_err(e):
     msg = str(e).strip().splitlines()
     return (msg[-1] if msg else e.__class__.__name__)[:180]
 
+def replace_file(tmp, dst, tries=25):
+    """tmp -> dst. Pe Windows, un fisier deschis in alt loc (browserul tocmai citeste din el) nu poate fi inlocuit:
+    mai incerc cateva secunde."""
+    for i in range(tries):
+        try:
+            return Path(tmp).replace(dst)
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.2)
+
+def remove_file(p):
+    """Sterge daca se poate; un fisier inca deschis (pe Windows) ramane si se sterge data viitoare."""
+    try:
+        Path(p).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+def drain(stream):
+    """Citeste un pipe (stderr) pe alt fir, ca ffmpeg sa nu se blocheze cand scrie multe erori
+    (pe Windows pipe-ul se umple dupa ~4 KB). Intoarce o functie care da textul citit."""
+    buf = []
+    th = threading.Thread(target=lambda: buf.append(stream.read()), daemon=True)
+    th.start()
+    def text():
+        th.join()
+        out = buf[0] if buf else ""
+        return out.decode("utf-8", "replace") if isinstance(out, bytes) else out
+    return text
+
 
 # ------------------------------------------------------------ 1. taiere
 # ------------------------------------------------------------ 2. transcriere
@@ -647,6 +678,7 @@ def _ffmpeg_run(src, vf, dst, cwd, venc, duration, report):
             "-progress", "pipe:1", "-nostats", str(dst)]
     p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    stderr = drain(p.stderr)
     last = -1.0
     for line in p.stdout:
         if line.startswith(("out_time_us=", "out_time_ms=")):
@@ -658,7 +690,7 @@ def _ffmpeg_run(src, vf, dst, cwd, venc, duration, report):
             if pct - last >= 1:
                 last = pct
                 report({"type": "progress", "value": round(pct, 1)})
-    err = p.stderr.read()
+    err = stderr()
     return p.wait(), err
 
 def encode(src, dst, vf, cwd, report, n, what):
@@ -1251,6 +1283,7 @@ def _ffmpeg_complex(src, fc, maps, dst, venc, duration, report, scale, extra_inp
         for cmd in attempts:
             p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                  encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+            stderr = drain(p.stderr)
             last = -1.0
             for line in p.stdout:
                 if line.startswith(("out_time_us=", "out_time_ms=")):
@@ -1262,7 +1295,7 @@ def _ffmpeg_complex(src, fc, maps, dst, venc, duration, report, scale, extra_inp
                     if v - last >= 1:
                         last = v
                         report({"type": "progress", "value": round(v, 1)})
-            err = p.stderr.read()
+            err = stderr()
             if p.wait() == 0 and Path(dst).exists():
                 return 0, ""
         return 1, err
@@ -1491,10 +1524,10 @@ def processed_audio(job_dir, project):
                        capture_output=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     if r.returncode != 0 or not tmp.exists():
         raise RuntimeError("Procesarea sunetului a eșuat. " + (r.stderr or "")[-300:])
-    tmp.replace(out)
+    replace_file(tmp, out)
     for old in job_dir.glob("_sunet_*.m4a"):
         if old != out:
-            old.unlink(missing_ok=True)
+            remove_file(old)
     return out
 
 def preview_audio_sync(job_dir, project):
@@ -1514,7 +1547,7 @@ def preview_audio_sync(job_dir, project):
                         "-movflags", "+faststart", str(tmp)],
                        capture_output=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     if r.returncode == 0 and tmp.exists():
-        tmp.replace(pv)
+        replace_file(tmp, pv)
     return pv
 
 
@@ -1549,7 +1582,7 @@ def make_preview(job_dir, project, report=None):
         r = subprocess.run(base + venc + tail, capture_output=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
         tmp = out.with_suffix(".tmp.mp4")
         if r.returncode == 0 and tmp.exists():
-            tmp.replace(out)
+            replace_file(tmp, out)
             return out
     return None
 
@@ -1822,7 +1855,7 @@ def render_final(job_dir, project, report, source_url, asset_url=None, captions=
             done = True
         except Exception as e:
             report({"type": "log", "msg": f"{str(e).splitlines()[0][:260]} — folosesc motorul clasic."})
-            (job_dir / name).unlink(missing_ok=True)
+            remove_file(job_dir / name)
     if not done:
         burn_classic(job_dir, project, job_dir / name, report, captions)
     for old in job_dir.glob("video_final*.mp4"):
@@ -1985,7 +2018,7 @@ def render_variant(job_dir, project, v, report, source_url, asset_url=None, capt
             done = True
         except Exception as e:
             report({"type": "log", "msg": f"{str(e).splitlines()[0][:260]} — folosesc motorul clasic."})
-            dst.unlink(missing_ok=True)
+            remove_file(dst)
     if not done:
         cut = job_dir / "_taiat_varianta.mp4"
         try:
@@ -2073,6 +2106,8 @@ def find_spot(where, cues, total):
         return (0.0, None)
     if re.search(r"\b(final|sfarsit|outro)", w):
         return (-1.0, None)
+    if re.search(r"\b(mijloc|jumatate)", w):
+        return (round(total / 2, 2), None)
     want = _tokens(where)
     if not want:
         return None
@@ -2181,7 +2216,8 @@ def apply_script(script, words, segs, cfg, report, src=None):
     n_quiet = sum(1 for t in al["all_takes"] for c in t if c.get("quiet"))
     report({"type": "log", "msg": f"Script: am regăsit {n_found} din {n_units} fraze · {n_retakes} reluări"
                                   + (f" ({n_quiet} spuse încet, citite de pe ecran)" if n_quiet else "")
-                                  + f" · am scos încă {removed:.1f} s față de tăierea pauzelor."})
+                                  + (f" · am scos încă {removed:.1f} s față de tăierea pauzelor." if cfg.get("script_retakes") or keep_mode
+                                     else " · nu tai nimic după script (îl folosesc pentru subtitrări și în tabul „📜 Script”).")})
     summary = f"Script: {n_found}/{n_units} fraze · {n_retakes} reluări · −{removed:.1f} s"
     report({"type": "stage_detail", "n": 2, "detail": summary})
     # potrivirea ramane in proiect: tabul „📜 Script” iti arata dublele si poti alege alta

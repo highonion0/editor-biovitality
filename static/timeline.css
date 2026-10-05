@@ -116,7 +116,7 @@
 .gf input[type=text]{height:36px}
 /* taburi panou */
 .tinsp{padding:0}
-.itabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--line)}
+.itabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px;border-bottom:1px solid var(--line)}
 .itabs button{border:0;background:transparent;padding:8px 14px;border-radius:9px;font-weight:600;font-size:13px;color:var(--muted)}
 .itabs button.on{background:var(--raise);color:var(--text)}
 .itabs button[data-t=ai].on{color:var(--honey)}

@@ -244,6 +244,11 @@ def load_existing_projects():
                    cut_to=meta.get("cut_to") or round(core.seg_total(pr.get("segments") or []), 1),
                    device=meta.get("device"), finished=meta.get("finished") or d.stat().st_mtime,
                    settings_view=meta.get("settings_view") or core.settings_summary(cfg))
+        # transcrierea (pentru panoul „Transcript” si „Copiaza textul”), refacuta din subtitrarile proiectului
+        cues = sorted((pr.get("captions") or {}).get("cues") or [], key=lambda c: c.get("start", 0))
+        job["segments"] = [{"start": round(c["start"], 2), "end": round(c["end"], 2),
+                            "text": " ".join(w.get("t", "") for w in c.get("words") or []).strip()}
+                           for c in cues if isinstance(c, dict) and "start" in c and "end" in c]
         for s_, det in zip(job["stages"], ("Din proiectul salvat", "", "Randat" if files.get("final") else "—")):
             s_.update(status="done", progress=100, detail=det)
         job["log"].append({"t": time.strftime("%H:%M:%S"), "msg": f"Reîncărcat din {d.name} — editările tale sunt aici."})
@@ -430,7 +435,7 @@ def run_variants(job, payload):
         keep = {f"varianta_{h['label']}.mp4" for h in hooks}
         for old in Path(job["dir"]).glob("varianta_*.mp4"):         # variantele sterse dispar si din folder
             if old.name not in keep:
-                old.unlink(missing_ok=True)
+                core.remove_file(old)
         for k in [k for k in job["files"] if k.startswith("var_")]:
             job["files"].pop(k)
         for i, v in enumerate(hooks, 1):
@@ -602,7 +607,7 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 if m.group(1):
                     start = int(m.group(1))
-                    # cereri deschise ("bytes=N-") -> raspund cu bucati de 4 MB, ca playerele sa nu tina
+                    # cereri deschise ("bytes=N-") -> raspund cu bucati de 16 MB, ca playerele sa nu tina
                     # conexiunea ocupata (browserul are doar 6 conexiuni spre aplicatie)
                     end = min(int(m.group(2)), size - 1) if m.group(2) else min(size - 1, start + CHUNK - 1)
                 elif m.group(2):
@@ -624,17 +629,22 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.quote(download_name)
             self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{q}")
         self.end_headers()
+        # fisierul se deschide doar cat citesc o bucata, nu cat asteapta browserul: pe Windows un fisier deschis
+        # nu poate fi inlocuit sau sters (previzualizarea cu sunetul nou, decuparile vechi, variantele)
+        pos, left = start, end - start + 1
         try:
-            with open(path, "rb") as f:
-                f.seek(start)
-                left = end - start + 1
-                while left > 0:
+            while left > 0:
+                with open(path, "rb") as f:
+                    f.seek(pos)
                     chunk = f.read(min(256 * 1024, left))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    left -= len(chunk)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                pos += len(chunk)
+                left -= len(chunk)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+        except OSError:                     # fisierul tocmai a fost inlocuit / sters
             pass
 
     # -------- GET
