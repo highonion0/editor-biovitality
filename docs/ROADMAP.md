@@ -3,7 +3,7 @@
 Preluat din chatul vechi în care a fost dezvoltată aplicația (2 octombrie 2026).
 
 ## Din lista inițială
-1. **Scoaterea fundalului**
+1. **Scoaterea fundalului** — *următorul pas pentru „🧍 Tu peste el” decupat (ca efectul green screen de pe TikTok)*
    - Pe poze (logo, produse), unde merge rapid.
    - Pe video-ul cu persoana filmată, ca să fie pusă peste alt fundal: culoare, poză, alt video sau fundalul original estompat.
    - Rulează local pe RTX 4070, fără costuri pe cerere.
@@ -24,14 +24,14 @@ Preluat din chatul vechi în care a fost dezvoltată aplicația (2 octombrie 202
    - Se salvează un format recurent: look, stil de subtitrări, intro, final, grafice tipice.
    - Formatul se aplică pe toate video-urile pregătite, iar propunerile se generează automat.
    - Utilizatorul doar aprobă, apoi randarea merge în coadă, inclusiv peste noapte.
-7. **Biblioteca de B-roll**
-   - Clipuri proprii etichetate (produse, ingrediente, ambalaje).
-   - Claude le propune înainte de generarea în DaVinci.
-
 ## Făcute
 - **Reordonarea bucăților** din video-ul principal (tragere pe timeline, butoane ◀ ▶, Alt+←/→).
 - **4. Pachet de publicare** (tabul 📣 Publicare): descriere, hashtag-uri, text de copertă și primul comentariu pe platformă + coperta.
 - **6. Variante de cârlig (A/B)** (tabul 📣 Publicare): `varianta_A.mp4`, `varianta_B.mp4`…
+- **7. Biblioteca de poze și clipuri** (tabul 📚 Bibliotecă); Claude le propune în 💡 Propuneri.
+- **Materiale obligatorii** urcate odată cu video-ul, puse automat pe timeline.
+- **🧍 Tu peste el**: poză / clip ca fundal, tu într-o fereastră (dreptunghi / cerc / vertical). Varianta decupată = punctul 1.
+- **Captionul tău** în `caption.txt`; video-uri lungi (10+ min) fără probleme de memorie.
 
 ## Excluse explicit (se ocupă utilizatorul)
 - Verificarea afirmațiilor de sănătate.

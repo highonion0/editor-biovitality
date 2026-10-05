@@ -127,7 +127,7 @@ function buildTimeline() {
         </div>
         <div id="tSzHost"></div>
       </div>
-      <div class="card tinsp" id="tInsp"><div class="itabs" id="tTabs"><button data-t="props">Proprietăți</button><button data-t="cap">Aa Subtitrări</button><button data-t="look">🎨 Look</button><button data-t="sfx">♪ Sunete</button><button data-t="prop">💡 Propuneri</button><button data-t="pub">📣 Publicare</button><button data-t="ai">✦ Asistent</button></div><div id="tInspBody"></div></div>
+      <div class="card tinsp" id="tInsp"><div class="itabs" id="tTabs"><button data-t="props">Proprietăți</button><button data-t="cap">Aa Subtitrări</button><button data-t="look">🎨 Look</button><button data-t="sfx">📚 Bibliotecă</button><button data-t="prop">💡 Propuneri</button><button data-t="pub">📣 Publicare</button><button data-t="ai">✦ Asistent</button></div><div id="tInspBody"></div></div>
     </div>
     <div class="card tlcard">
       <div class="tltools">
@@ -179,7 +179,7 @@ function buildTimeline() {
 }
 function tlTabs() {
   document.querySelectorAll('#tTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === T.tab));
-  if (T.tab === 'ai') renderAssistant(); else if (T.tab === 'sfx') renderSfx(); else if (T.tab === 'prop') renderProposals();
+  if (T.tab === 'ai') renderAssistant(); else if (T.tab === 'sfx') renderLibrary(); else if (T.tab === 'prop') renderProposals();
   else if (T.tab === 'cap') renderCaptionsTab(); else if (T.tab === 'look') renderLook(); else if (T.tab === 'pub') renderPublish(); else tlInspector();
 }
 
@@ -594,15 +594,24 @@ function tlFreeLane(a, b) {
   for (let l = 0; l < 20; l++) if (!T.ovs.some(o => (o.lane || 0) === l && o.start < b && a < o.end)) return l;
   return 0;
 }
-function tlAddAsset(info) {
-  const total = tlTotal(), a = clamp(T.t, 0, Math.max(0, total - 0.2));
-  const len = info.type === 'video' ? Math.min(info.duration || 3, 6) : 3;
-  const b = Math.min(total, a + len);
-  if (info.type === 'audio') return tlAddAudio(info);
+// o poza / un clip pe timeline, intr-unul din cele 3 moduri: small = mic peste video, full = tot ecranul, bg = tu peste el
+const MEDIA_MODES = [['small', '▣ Mic peste video'], ['full', '⛶ Tot ecranul'], ['bg', '🧍 Tu peste el']];
+function tlMediaOverlay(info, a, b, mode) {
   const portrait = (info.height || 1) >= (info.width || 1);   // patrate (logo) si verticale -> mai inguste
   const o = { id: 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), type: info.type, asset: info.asset,
     start: +a.toFixed(3), end: +b.toFixed(3), x: 0.5, y: 0.35, w: portrait ? 0.45 : 0.8, opacity: 1, muted: true, source_start: 0,
     lane: tlFreeLane(a, b), rotation: 0, radius: 0, ar: info.width ? +(info.height / info.width).toFixed(5) : 1 };
+  if (mode === 'full') o.fit = 'cover';
+  else if (mode === 'bg') { o.fit = 'bg'; o.pip = { ...PIP_DEFAULT }; }
+  else if (mode === 'small') { o.radius = 4; o.anim_in = 'pop'; o.anim_out = 'fade'; }
+  return o;
+}
+function tlAddAsset(info, mode) {
+  const total = tlTotal(), a = clamp(T.t, 0, Math.max(0, total - 0.2));
+  const len = info.type === 'video' ? Math.min(info.duration || 3, 6) : 3;
+  const b = Math.min(total, a + len);
+  if (info.type === 'audio') return tlAddAudio(info);
+  const o = tlMediaOverlay(info, a, b, mode);
   tlChange(() => { T.ovs.push(o); T.sel = { kind: 'ov', i: T.ovs.length - 1 }; });
 }
 const tplOf = id => (S.templates || []).find(t => t.id === id);
@@ -1198,6 +1207,7 @@ function tlInspector() {
     const cuts = tlCuts().filter(c => c.kind !== 'join');
     p.innerHTML = `<h4>${T.segs.length} ${T.segs.length === 1 ? 'bucată' : 'bucăți'} · ${fmtTC(tlTotal())}</h4>
       <div class="sub2">${cuts.length} ${cuts.length === 1 ? 'pauză tăiată' : 'pauze tăiate'} (${fmtS(cuts.reduce((n, c) => n + c.len, 0))}). Click pe un ✂ ca s-o readuci, pe o bucată ca s-o ajustezi, pe o suprapunere ca s-o reglezi.</div>
+      ${matPendingHTML()}
       ${szPanelHTML()}
       ${T.pr.captions && T.pr.captions.cues && T.pr.captions.cues.length ? `<div class="capq"><b>Subtitrări</b>
         <div class="segs" id="capPos"><button data-y="0.18">Sus</button><button data-y="0.5">Mijloc</button><button data-y="0.66">Jos</button></div>
@@ -1212,6 +1222,7 @@ function tlInspector() {
     p.querySelectorAll('[data-a]').forEach(b => b.onclick = () => tlAddAsset(T.assets[+b.dataset.a]));
     const cp = $('#capPos'); if (cp) cp.onclick = e => { const b = e.target.closest('[data-y]'); if (b) tlCapPreset(+b.dataset.y); };
     szBindPanel(p);
+    matBindPending(p);
   }
 }
 

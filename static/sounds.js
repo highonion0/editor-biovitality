@@ -18,8 +18,8 @@ async function sfxPost(url, body) {
 }
 
 async function renderSfx() {
-  const body = $('#tInspBody'); if (!body || T.tab !== 'sfx') return;
-  if (!S.sfx) { body.innerHTML = '<div class="sub2">Citesc sunetele…</div>'; await sfxLoad(); if (T.tab !== 'sfx') return; }
+  const body = $('#libBody'); if (!body || T.tab !== 'sfx' || S.libKind !== 'sfx') return;
+  if (!S.sfx) { body.innerHTML = '<div class="sub2">Citesc sunetele…</div>'; await sfxLoad(); if (T.tab !== 'sfx' || S.libKind !== 'sfx') return; }
   const d = S.sfx;
   if (!d.libs.length) {
     body.innerHTML = `<div class="sfxsetup">

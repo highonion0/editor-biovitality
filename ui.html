@@ -322,6 +322,19 @@ input[type=color]:disabled{opacity:.35;cursor:default}
 @media (max-width:1100px){.work{grid-template-columns:1fr}.steps{grid-template-columns:1fr}}
 @media (max-width:760px){.app{grid-template-columns:1fr}aside{display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.dmat{display:flex;flex-direction:column;gap:8px;margin-top:16px;padding:12px;border:1px dashed var(--line2);border-radius:12px}
+.dmath{display:flex;gap:8px;align-items:center;font-size:13.5px}
+.dmatlist{display:flex;flex-direction:column;gap:8px}
+.dmempty{padding:18px;text-align:center;color:var(--muted);font-size:12.5px;border-radius:9px;background:var(--panel2)}
+.dmrow{display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center}
+.dmrow img,.dmrow video{width:64px;height:64px;object-fit:cover;border-radius:8px;background:#000}
+.dmf{display:flex;flex-direction:column;gap:5px;min-width:0}
+.dmf .nm{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dmf input{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;color:var(--text);font:inherit;font-size:12.5px;padding:6px 9px}
+.dmodes{display:flex;flex-wrap:wrap;gap:4px}
+.dmodes button{height:26px;padding:0 8px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);color:var(--muted);font:inherit;font-size:11.5px;cursor:pointer}
+.dmodes button.on{border-color:var(--honey);color:var(--honey);background:var(--honeySoft)}
+.row2{display:flex;gap:8px;align-items:center}
 </style>
 <link rel="stylesheet" href="/static/timeline.css">
 </head>
@@ -777,6 +790,7 @@ function buildDraft(j) {
             ${tog('script_offscript', 'Scoate ce nu e în script', 'Bâlbe, fraze abandonate, „stai, o iau de la capăt”')}
             ${tog('script_captions', 'Subtitrări cu textul din script', 'Cu diacriticele și punctuația ta, nu cum a înțeles transcrierea')}
           </div>
+          ${matHTML(j)}
           <div class="dact">
             <button class="cta" id="dStart">▶ Pornește</button>
             <button class="btn" id="dAll" hidden></button>
@@ -796,6 +810,7 @@ function buildDraft(j) {
   };
   $('#main').querySelectorAll('[data-opt]').forEach(i => i.onchange = () => { S.settings[i.dataset.opt] = i.checked; saveSettings(); });
   $('#dStart').onclick = () => startDraft(j.id);
+  matBind(j);
   $('#dAll').onclick = () => startAllDrafts(j.id);
   updateDraft(j);
 }
@@ -1303,7 +1318,16 @@ window.addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDepth 
 window.addEventListener('drop', e => {
   if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; $('#dropall').classList.remove('on');
   if (T.on) { tlAddFiles([...e.dataTransfer.files], e); return; }
-  addFiles([...e.dataTransfer.files]);
+  let files = [...e.dataTransfer.files];
+  // pe ecranul de pregatire: pozele (si orice fisier tras peste „Materiale”) devin materiale ale acestui video
+  if ((S.rendered || '').startsWith('draft:')) {
+    const onMat = e.target.closest && e.target.closest('#dMat');
+    const mats = files.filter(f => onMat ? (MAT_IMG.test(f.name) || MAT_VID.test(f.name)) : MAT_IMG.test(f.name));
+    if (mats.length) matAddFiles(mats);
+    files = files.filter(f => !mats.includes(f));
+    if (!files.length) return;
+  }
+  addFiles(files);
 });
 
 renderQuick();
@@ -1320,5 +1344,7 @@ connect();
 <script src="/static/safezones.js"></script>
 <script src="/static/motion.js"></script>
 <script src="/static/publish.js"></script>
+<script src="/static/library.js"></script>
+<script src="/static/materials.js"></script>
 </body>
 </html>

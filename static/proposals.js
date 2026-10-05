@@ -1,9 +1,9 @@
 /* BioVitality Editor - „Cum as edita eu”: Claude propune, tu bifezi, abia apoi se aplica (punctul 5). */
 
 S.props = {};
-const P_ICON = { graphic: '✦', emphasis: 'A', sfx: '♪', cut: '✂', broll: '🎬', zoom: '🔍' };
-const P_LABEL = { graphic: 'Grafică', emphasis: 'Evidențiere', sfx: 'Sunet', cut: 'Tăietură', broll: 'B-roll · DaVinci', zoom: 'Zoom' };
-const P_APPLY = new Set(['graphic', 'emphasis', 'sfx', 'cut', 'broll', 'zoom']);
+const P_ICON = { graphic: '✦', emphasis: 'A', sfx: '♪', cut: '✂', broll: '🎬', zoom: '🔍', libmedia: '📚' };
+const P_LABEL = { graphic: 'Grafică', emphasis: 'Evidențiere', sfx: 'Sunet', cut: 'Tăietură', broll: 'B-roll · DaVinci', zoom: 'Zoom', libmedia: 'Din biblioteca ta' };
+const P_APPLY = new Set(['graphic', 'emphasis', 'sfx', 'cut', 'broll', 'zoom', 'libmedia']);
 const pNorm = s => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 
 // textul care va aparea efectiv pe ecran, ca sa-l vezi inainte sa bifezi
@@ -54,6 +54,7 @@ function renderProposals() {
         ${p.kind === 'zoom' ? `<small class="pidea">Zoom ${(+(p.zoom || 1.2)).toFixed(2)}× între ${fmtTC(p.start)} și ${fmtTC(p.end)}</small>` : ''}
         ${p.kind === 'emphasis' && p.words ? `<small class="pidea">Cuvinte: ${esc(p.words.join(', '))}</small>` : ''}
         ${p.kind === 'sfx' && p.sfx ? `<small class="pidea">Sunet: ${esc(p.sfx)}</small>` : ''}
+        ${p.kind === 'libmedia' && p.media ? `<small class="pidea">Din bibliotecă: ${esc(p.media)} · ${esc((MEDIA_MODES.find(m => m[0] === p.mode) || MEDIA_MODES[0])[1])}</small>` : ''}
         ${p.result ? `<small class="pres">${p.applied ? '✓' : '✗'} ${esc(p.result)}</small>` : ''}</div></div>`;
   body.innerHTML = `<div class="pbox">
     ${st.summary ? `<div class="psum">${esc(st.summary)}</div>` : ''}
@@ -132,6 +133,17 @@ async function pApply() {
       if (p.info && !T.assets.some(a => a.asset === p.info.asset)) T.assets.push(p.info);
     }
   }
+  // pozele / clipurile din biblioteca: le copiez in proiect inainte
+  if (sel.some(p => p.kind === 'libmedia')) {
+    await mlLoad();
+    for (const p of sel.filter(p => p.kind === 'libmedia')) {
+      const it = mlFind(p.media);
+      if (!it) { p.info = null; continue; }
+      const info = await sfxPost(`/api/medialib/use/${T.id}`, { lib: it.lib, rel: it.rel });
+      p.info = info.error ? null : info;
+      if (p.info && !T.assets.some(a => a.asset === p.info.asset)) T.assets.push(p.info);
+    }
+  }
   const done = (p, ok, msg) => { p.applied = ok; p.fail = !ok; p.result = msg; p.checked = false; };
   tlChange(() => {
     sel.filter(p => p.kind !== 'cut').forEach(p => {
@@ -148,6 +160,11 @@ async function pApply() {
         const it = tlAddSlot({ start: p.start, end: p.end, idea: p.broll || p.title, prompt: p.prompt || '' }, false);
         p.slotId = it.id;
         done(p, true, 'Loc rezervat pe timeline — copiază prompt-ul și generează în DaVinci');
+      } else if (p.kind === 'libmedia') {
+        if (!p.info) { done(p, false, 'Nu am găsit fișierul în biblioteca ta'); return; }
+        const b = p.info.type === 'video' && p.info.duration ? Math.min(p.end, p.start + p.info.duration) : p.end;
+        T.ovs.push(tlMediaOverlay(p.info, p.start, Math.max(p.start + 0.5, b), p.mode || 'small'));
+        done(p, true, `„${p.info.asset}” pus pe timeline`);
       } else if (p.kind === 'sfx') {
         if (!p.info) { done(p, false, 'Nu am găsit sunetul în biblioteca ta'); return; }
         const b = Math.min(tlTotal(), p.start + (p.info.duration || 1));

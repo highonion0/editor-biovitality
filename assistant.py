@@ -301,7 +301,7 @@ def ask(project, state, messages):
 
 
 # ------------------------------------------------------------ propuneri de editare (punctul 5)
-PROPOSAL_KINDS = ["graphic", "emphasis", "sfx", "cut", "broll", "zoom"]
+PROPOSAL_KINDS = ["graphic", "emphasis", "sfx", "cut", "broll", "zoom", "libmedia"]
 
 def propose_tool():
     num = {"type": "number"}
@@ -313,7 +313,8 @@ def propose_tool():
             "proposals": {"type": "array", "items": {"type": "object", "properties": {
                 "kind": {"type": "string", "enum": PROPOSAL_KINDS,
                          "description": "graphic = grafică animată; emphasis = cuvinte evidențiate în subtitrări; sfx = efect sonor din bibliotecă; "
-                                        "cut = taie o porțiune (bâlbă, pauză lungă); broll = idee de imagini peste vorbitor; zoom = zoom pe vorbitor."},
+                                        "cut = taie o porțiune (bâlbă, pauză lungă); broll = idee de imagini peste vorbitor (de generat în DaVinci); "
+                                        "zoom = zoom pe vorbitor; libmedia = o poză / un clip din biblioteca ei."},
                 **LINE_FIELDS,
                 "start": {"type": "number", "description": "Doar pentru cut, sau dacă nu folosești from_line."},
                 "end": {"type": "number", "description": "Doar pentru cut, sau dacă nu folosești to_line."},
@@ -328,7 +329,11 @@ def propose_tool():
                 "volume": num,
                 "broll": {"type": "string", "description": "Doar pentru broll: ce se vede, în română, scurt."},
                 "prompt": {"type": "string", "description": "Doar pentru broll: prompt-ul în engleză pentru DaVinci, după regulile de stil."},
-                "zoom": {"type": "number", "description": "Doar pentru zoom: cât de mult (1.1–1.4)."}},
+                "zoom": {"type": "number", "description": "Doar pentru zoom: cât de mult (1.1–1.4)."},
+                "media": {"type": "string", "description": "Doar pentru libmedia: numele EXACT din biblioteca de poze și clipuri (categorie / nume)."},
+                "mode": {"type": "string", "enum": ["small", "full", "bg"],
+                         "description": "Doar pentru libmedia: small = mic peste video (logo, produs), full = pe tot ecranul (B-roll), "
+                                        "bg = fundal, iar ea apare într-o fereastră peste el (explică ce se vede în poză)."}},
                 "required": ["kind", "title", "reason"]}}},
             "required": ["summary", "proposals"]}}
 
@@ -344,6 +349,9 @@ Ce contează:
 - „broll”: 2–4 momente unde imaginile explică mai bine decât vorbitorul (procese din corp, molecule, organe, ingrediente),
   fiecare cu from_line / to_line, „broll” (ce se vede, în română) și „prompt” (în engleză, pentru DaVinci, după regulile de mai sus).
   Prompt-ul ilustrează EXACT afirmația din acele fraze, cu structurile numite corect — nu o imagine generică despre subiect.
+- „libmedia”: dacă în biblioteca ei de poze și clipuri (lista de mai jos) e ceva potrivit unui moment (produsul despre care vorbește,
+  un ingredient, ambalajul), propune-l cu numele EXACT din listă, cu from_line / to_line și „mode”. Materialele ei sunt mai autentice:
+  pentru un moment, preferă o poză / un clip din bibliotecă în locul unui „broll” de generat. Nu inventa nume care nu sunt în listă.
 - „zoom”: 1–3 momente-cheie (o cifră, o afirmație tare), fiecare cu from_line / to_line și „zoom” (1.05–1.6; 1.15–1.25 arată bine).
 - Nu pune elemente peste cele care există deja pe timeline și nu suprapune două grafice în același loc în același timp.
 - Măsură: pentru un video de ~45 s, de obicei 4–8 grafice, 4–8 evidențieri, 2–5 efecte sonore.
@@ -356,12 +364,14 @@ Ce contează:
 """
 
 
-def propose(project, state, sfx_names):
+def propose(project, state, sfx_names, media_names=()):
     key = api_key()
     if not key:
         raise AssistantError("Nu ai setat încă cheia API. O adaugi din tabul Asistent.")
     lib = "\n".join(f"- {n}" for n in sfx_names[:300]) if sfx_names else "(biblioteca de sunete e goală — nu propune efecte sonore)"
-    system = build_system(project, state) + PROPOSE_GUIDE + "\nBiblioteca de efecte sonore (categorie / nume):\n" + lib
+    media = "\n".join(f"- {n}" for n in media_names[:400]) if media_names else "(biblioteca de poze și clipuri e goală — nu propune „libmedia”)"
+    system = build_system(project, state) + PROPOSE_GUIDE + "\nBiblioteca de efecte sonore (categorie / nume):\n" + lib + \
+        "\n\nBiblioteca ei de poze și clipuri (categorie / nume):\n" + media
     data, inp = _tool_call(system, "Analizează video-ul și propune-mi cum l-ai edita.", propose_tool(), 16000)
     if inp is None:
         raise AssistantError("Claude n-a trimis propuneri. Mai încearcă o dată.")
@@ -385,7 +395,7 @@ def propose(project, state, sfx_names):
         if b <= a:
             b = min(total, a + 1.0)
         q = {k: v for k, v in p.items() if k in ("kind", "title", "reason", "template", "props", "x", "y", "w",
-                                                 "words", "color", "sfx", "volume", "broll", "prompt", "zoom")}
+                                                 "words", "color", "sfx", "volume", "broll", "prompt", "zoom", "media", "mode")}
         q.update(id=f"p{i}", start=round(a, 2), end=round(b, 2),
                  title=str(p.get("title", ""))[:90], reason=str(p.get("reason", ""))[:240])
         if q["kind"] == "graphic":
@@ -693,3 +703,43 @@ def propose_hooks(project, state):
     if not hooks:
         raise AssistantError("Claude n-a trimis variante folosibile. Mai încearcă o dată.")
     return {"hooks": hooks, "usage": data.get("usage", {})}
+
+
+# ------------------------------------------------------------ materialele ei, fara indicatie: Claude alege momentul
+def place_tool():
+    return {
+        "name": "place_materials",
+        "description": "Alege momentul din video pentru fiecare material al ei (poză sau clip). Toate materialele trebuie folosite.",
+        "input_schema": {"type": "object", "properties": {
+            "placements": {"type": "array", "items": {"type": "object", "properties": {
+                "name": {"type": "string", "description": "Numele EXACT al fișierului, din lista dată."},
+                **LINE_FIELDS,
+                "reason": {"type": "string", "description": "De ce acolo (scurt)."}},
+                "required": ["name", "from_line"]}}},
+            "required": ["placements"]}}
+
+def place_materials(project, items):
+    """items: [{asset, type, where}] -> {asset: (start, end)} pe video-ul final."""
+    if not api_key() or not items:
+        return {}
+    lst = "\n".join(f"- {it['asset']} ({'poză' if it['type'] == 'image' else 'clip'})"
+                    + (f" — indicația ei: {it['where']}" if it.get("where") else "") for it in items)
+    system = build_system(project, {}) + """
+Sarcina ta acum: ea a urcat aceste materiale (poze / clipuri) ca să apară OBLIGATORIU în video. Pentru fiecare, alege fraza
+la care se potrivește cel mai bine, după numele fișierului și după ce spune ea (from_line / to_line, de obicei 1–2 fraze).
+Folosește-le pe toate, fiecare o singură dată, în momente diferite. Trimite răspunsul cu unealta place_materials.
+"""
+    data, inp = _tool_call(system, "Materialele mele:\n" + lst, place_tool(), 4000)
+    if not inp:
+        return {}
+    cues, segs, _ = _out_cues(project, {})
+    total = core.seg_total(segs)
+    names = {it["asset"] for it in items}
+    out = {}
+    for p in inp.get("placements") or []:
+        if not isinstance(p, dict) or p.get("name") not in names or p["name"] in out:
+            continue
+        anchor(p, cues, total, "cut")
+        if "start" in p and "end" in p:
+            out[p["name"]] = (float(p["start"]), float(p["end"]))
+    return out

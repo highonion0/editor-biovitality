@@ -1072,6 +1072,8 @@ def apply_timeline(job_dir, payload, report):
         raise RuntimeError("Timeline-ul nu mai are nicio bucată video.")
     pr["segments"] = segs
     pr["overlays"] = clean_overlays(payload.get("overlays"), seg_total(segs), job_dir / ASSETS)
+    if pr.get("materials_pending"):                     # materialele puse intre timp nu mai sunt „de pus”
+        pr["materials_pending"] = [a for a in pr["materials_pending"] if not any(o.get("asset") == a for o in pr["overlays"])]
     pr["audio"] = clean_audio(payload.get("audio"), seg_total(segs), job_dir / ASSETS)
     if isinstance(payload.get("zooms"), list):
         pr["zooms"] = clean_zooms(payload["zooms"], seg_total(segs))
@@ -1913,6 +1915,102 @@ def make_cover(job_dir, project, t_out, title, subtitle=""):
     return job_dir / COVER_FILE
 
 
+# ------------------------------------------------------------ materialele tale (poze / clipuri urcate odata cu video-ul)
+MATERIAL_MODES = ("small", "full", "bg")
+_STOP = set("cand când zic zice spun spune vorbesc vorbeste vorbește despre de la in în si și pe cu ca că sa să o un una "
+            "unde momentul partea fraza cuvantul cuvântul pune puneti pune-l pune-o arata arată apare atunci asta acesta aceasta".split())
+
+def _norm(s):
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(s).lower())
+    return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
+def _tokens(s):
+    return [t for t in re.findall(r"[a-z0-9]+", _norm(s)) if t not in _STOP and len(t) > 1]
+
+def _tok_match(a, b):
+    if a == b:
+        return True
+    return len(a) >= 4 and len(b) >= 4 and (a[:5] == b[:5] or a.startswith(b) or b.startswith(a))
+
+def material_overlay(info, start, end, mode, lane=0):
+    """La fel ca tlMediaOverlay din timeline.js."""
+    w, h = info.get("width") or 1, info.get("height") or 1
+    o = {"id": "m" + re.sub(r"[^a-z0-9]", "", _norm(info["asset"]))[:10] + str(int(start * 1000)), "type": info["type"],
+         "asset": info["asset"], "start": round(start, 3), "end": round(end, 3), "x": 0.5, "y": 0.35,
+         "w": 0.45 if h >= w else 0.8, "opacity": 1, "muted": True, "source_start": 0, "lane": lane, "rotation": 0, "radius": 0}
+    if mode == "full":
+        o["fit"] = "cover"
+    elif mode == "bg":
+        o["fit"], o["pip"] = "bg", dict(PIP_DEFAULT)
+    else:
+        o.update(radius=4, anim_in="pop", anim_out="fade")
+    return o
+
+def find_spot(where, cues, total):
+    """Unde spune ea sa apara: „la început”, „la final”, „0:12”, sau cuvintele dintr-o fraza. Intoarce (start, end) sau None."""
+    w = _norm(where or "").strip()
+    if not w:
+        return None
+    m = re.search(r"(\d+):(\d{1,2})|(\d+(?:[.,]\d+)?)\s*(?:s|sec)", w)
+    if m:
+        t = int(m.group(1)) * 60 + int(m.group(2)) if m.group(1) else float(m.group(3).replace(",", "."))
+        return (min(t, max(0.0, total - 1)), None)
+    if re.search(r"\b(inceput|start|intro)", w):
+        return (0.0, None)
+    if re.search(r"\b(final|sfarsit|outro)", w):
+        return (-1.0, None)
+    want = _tokens(where)
+    if not want:
+        return None
+    best, score = None, 0
+    for i, c in enumerate(cues):
+        for span in (1, 2):                               # fraza singura sau impreuna cu urmatoarea
+            if i + span > len(cues):
+                continue
+            words = [t for cc in cues[i:i + span] for wd in cc["words"] for t in _tokens(wd["t"])]
+            sc = sum(1 for t in want if any(_tok_match(t, x) for x in words)) - (0.1 if span == 2 else 0)
+            if sc > score:
+                best, score = (cues[i]["start"], cues[i + span - 1]["end"]), sc
+    return best if score >= max(1, len(want) / 2) else None
+
+def place_materials(project, items, claude_spots=None):
+    """items: [{asset, mode, where, info}] -> le pune pe timeline. Intoarce lista celor fara loc (raman „de pus”)."""
+    segs = project["segments"]
+    total = seg_total(segs)
+    cues = captions_to_out(project["captions"], segs)["cues"] if (project.get("captions") or {}).get("cues") else []
+    cues = [c for c in cues if not c.get("hidden")]
+    claude_spots = claude_spots or {}
+    new, pending = [], []
+    for it in items:
+        info, mode = it["info"], it.get("mode") if it.get("mode") in MATERIAL_MODES else "small"
+        spot = find_spot(it.get("where"), cues, total) or claude_spots.get(it["asset"])
+        if not spot:
+            pending.append(it["asset"])
+            continue
+        a, b = spot
+        want = min(6.0, max(2.5, (b - a) if b is not None else 3.5))
+        if info["type"] == "video" and info.get("duration"):
+            want = min(want, info["duration"]) if info["duration"] >= 1.0 else info["duration"]
+        if a < 0:                                         # „la final”
+            a = max(0.0, total - want)
+        a = max(0.0, min(a, total - 0.5))
+        if mode in ("full", "bg"):                        # doua materiale pe tot ecranul: al doilea vine dupa primul
+            for o in sorted(new, key=lambda o: o["start"]):
+                if o.get("fit") in ("cover", "bg") and o["start"] < a + want and a < o["end"]:
+                    a = o["end"]
+            if a > total - 0.5:
+                pending.append(it["asset"])
+                continue
+        b = min(total, a + want)
+        lane = 0
+        while any(o.get("lane", 0) == lane and o["start"] < b and a < o["end"] for o in project.get("overlays", []) + new):
+            lane += 1
+        new.append(material_overlay(info, a, b, mode, lane))
+    project["overlays"] = list(project.get("overlays", [])) + new
+    project["materials_pending"] = pending
+    return pending
+
 # ------------------------------------------------------------ dupa script
 def apply_script(script, words, segs, cfg, report):
     """Potriveste transcrierea cu scriptul: scoate reluarile / ce nu e in script,
@@ -1949,7 +2047,8 @@ def apply_script(script, words, segs, cfg, report):
 
 
 # ------------------------------------------------------------ totul
-def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=None):
+def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=None, before_final=None):
+    """before_final(project) -> project: pasul aplicatiei inainte de randare (materialele tale puse pe timeline)."""
     video, job_dir = Path(video), Path(job_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
     files = {}
@@ -2001,6 +2100,8 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
     inside = lambda t: any(a <= t <= b for a, b in segs)
     words = [w_ for w_ in words if inside((w_[0] + w_[1]) / 2)]
     if not words:
+        if before_final:
+            save_project(job_dir, before_final(project) or project)
         report({"type": "log", "msg": "Nu am detectat vorbă — am făcut doar tăierea."})
         report({"type": "skipped", "n": 3, "detail": "Fără vorbă detectată"})
         report({"type": "done", "files": files})
@@ -2015,6 +2116,10 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         make_preview(job_dir, project, report)
     except Exception as e:
         report({"type": "log", "msg": f"Copia de previzualizare n-a mers ({_short_err(e)}); Timeline-ul folosește originalul."})
+
+    if before_final:
+        project = before_final(project) or project
+        save_project(job_dir, project)
 
     # 3) video-ul final
     if cfg["burn_captions"]:

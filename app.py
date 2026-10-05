@@ -41,7 +41,8 @@ UI_FILE = ROOT / "ui.html"
 STATIC_FILES = {"timeline.js": "text/javascript; charset=utf-8", "timeline.css": "text/css; charset=utf-8",
                 "graphics.js": "text/javascript; charset=utf-8", "assistant.js": "text/javascript; charset=utf-8",
                 "sounds.js": "text/javascript; charset=utf-8", "look.js": "text/javascript; charset=utf-8", "safezones.js": "text/javascript; charset=utf-8", "motion.js": "text/javascript; charset=utf-8", "proposals.js": "text/javascript; charset=utf-8",
-                "captions_tl.js": "text/javascript; charset=utf-8", "publish.js": "text/javascript; charset=utf-8"}
+                "captions_tl.js": "text/javascript; charset=utf-8", "publish.js": "text/javascript; charset=utf-8",
+                "library.js": "text/javascript; charset=utf-8", "materials.js": "text/javascript; charset=utf-8"}
 APP_ID = "biovitality-editor"
 CHUNK = 16 * 1024 * 1024
 BASE_PORT = 8765
@@ -250,6 +251,53 @@ def load_existing_projects():
     return n
 
 
+# ------------------------------------------------------------ materialele urcate odata cu video-ul
+def material_dir(job):
+    return IN_DIR / "_materiale" / job["id"]
+
+def clean_materials(job, raw):
+    out = []
+    for m in raw[:30]:
+        if not isinstance(m, dict):
+            continue
+        name = Path(str(m.get("asset", ""))).name
+        if name and (material_dir(job) / name).is_file():
+            out.append({"asset": name, "type": "image" if Path(name).suffix.lower() in core.IMAGE_EXT else "video",
+                        "mode": m.get("mode") if m.get("mode") in core.MATERIAL_MODES else "small",
+                        "where": str(m.get("where") or "").strip()[:200]})
+    return out
+
+def put_materials(job, project):
+    """Dupa transcriere, inainte de randare: copiaza materialele in proiect si le pune pe timeline."""
+    mats = (job.get("draft") or {}).get("materials") or []
+    if not mats:
+        return project
+    import shutil
+    items = []
+    for m in mats:
+        f = material_dir(job) / m["asset"]
+        if f.is_file():
+            dst = copy_to_assets(job, f)
+            items.append({**m, "asset": dst.name, "info": core.asset_info(dst)})
+    no_spot = [it for it in items if not core.find_spot(it.get("where"), core.captions_to_out(project["captions"], project["segments"])["cues"]
+                                                      if (project.get("captions") or {}).get("cues") else [], core.seg_total(project["segments"]))]
+    spots = {}
+    if no_spot and (project.get("captions") or {}).get("cues") and assistant.api_key():
+        add_log(job, f"Claude alege unde să pună {len(no_spot)} {'material' if len(no_spot) == 1 else 'materiale'}...")
+        try:
+            spots = assistant.place_materials(project, no_spot)
+        except Exception as e:
+            add_log(job, f"Claude n-a putut alege locurile ({str(e)[:200]}).")
+    pending = core.place_materials(project, items, spots)
+    project["overlays"] = core.clean_overlays(project["overlays"], core.seg_total(project["segments"]), Path(job["dir"]) / core.ASSETS)
+    n = len(items) - len(pending)
+    if n:
+        add_log(job, f"Am pus {n} {'material' if n == 1 else 'materiale'} de-ale tale pe timeline.")
+    if pending:
+        add_log(job, f"De pus de mână (în Timeline): {', '.join(pending)}.")
+    shutil.rmtree(material_dir(job), ignore_errors=True)
+    return project
+
 def run_job(job):
     st = job["stages"]
     job["status"] = "running"
@@ -266,7 +314,8 @@ def run_job(job):
 
     try:
         add_log(job, f"Încep: {job['name']}  ({job['settings_view']})")
-        core.process(Path(job["path"]), job_dir, job["settings"], report, on_segment, source_url(job), asset_url(job))
+        core.process(Path(job["path"]), job_dir, job["settings"], report, on_segment, source_url(job), asset_url(job),
+                     before_final=lambda pr: put_materials(job, pr))
         job["status"] = "done"
         add_log(job, f"Gata în {time.time() - t0:.0f} secunde.")
         job["finished"] = time.time()
@@ -415,21 +464,23 @@ def init_device():
     hub.publish({"type": "device", "device": state["device"]})
 
 
-# ------------------------------------------------------------ biblioteca de sunete
+# ------------------------------------------------------------ bibliotecile: sunete + poze si clipuri (folderele tale)
 LIB_FILE = ROOT / "biblioteci.json"
+LIB_KINDS = {"sfx": core.AUDIO_EXT, "media": core.IMAGE_EXT | core.VIDEO_EXT}
+LIB_URL = {"sfx": "sfx", "medialib": "media"}          # prefixul din adresa -> tipul bibliotecii
 
 def libs_load():
     try:
         d = json.loads(LIB_FILE.read_text(encoding="utf-8"))
-        return {"sfx": [p for p in d.get("sfx", []) if isinstance(p, str)]}
     except Exception:
-        return {"sfx": []}
+        d = {}
+    return {k: [p for p in d.get(k, []) if isinstance(p, str)] for k in LIB_KINDS}
 
 def libs_save(d):
     LIB_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
 
-def sfx_scan():
-    libs, items = libs_load()["sfx"], []
+def lib_scan(kind):
+    libs, items, ext = libs_load()[kind], [], LIB_KINDS[kind]
     for li, root in enumerate(libs):
         base = Path(root)
         if not base.is_dir():
@@ -438,26 +489,47 @@ def sfx_scan():
             dirs.sort(key=str.lower)
             for f in sorted(files, key=str.lower):
                 full = Path(dirpath) / f
-                if full.suffix.lower() not in core.AUDIO_EXT:
+                if full.suffix.lower() not in ext:
                     continue
                 rel = full.relative_to(base).as_posix()
                 cat = Path(rel).parent.as_posix()
-                items.append({"lib": li, "rel": rel, "name": full.stem, "cat": base.name if cat == "." else cat.replace("/", " › ")})
+                it = {"lib": li, "rel": rel, "name": full.stem, "cat": base.name if cat == "." else cat.replace("/", " › ")}
+                if kind == "media":
+                    it["type"] = "image" if full.suffix.lower() in core.IMAGE_EXT else "video"
+                items.append(it)
                 if len(items) >= 5000:
                     break
     return {"libs": [{"path": p, "name": Path(p).name or p, "ok": Path(p).is_dir()} for p in libs], "items": items}
 
-def sfx_file(lib, rel):
+def lib_file(kind, lib, rel):
     """Fisierul dintr-o biblioteca, doar daca e cu adevarat in interiorul ei."""
-    libs = libs_load()["sfx"]
+    libs = libs_load()[kind]
     try:
         base = Path(libs[int(lib)]).resolve()
         f = (base / rel).resolve()
-    except (ValueError, IndexError, OSError):
+    except (ValueError, IndexError, OSError, TypeError):
         return None
-    if base not in f.parents or not f.is_file() or f.suffix.lower() not in core.AUDIO_EXT:
+    if base not in f.parents or not f.is_file() or f.suffix.lower() not in LIB_KINDS[kind]:
         return None
     return f
+
+sfx_scan = lambda: lib_scan("sfx")
+
+def lib_names(kind):
+    """Lista pentru Claude: „categorie / nume” (+ tipul, la poze si clipuri)."""
+    return [f"{it['cat']} / {it['name']}" + (f" ({'poză' if it['type'] == 'image' else 'clip'})" if kind == "media" else "")
+            for it in lib_scan(kind)["items"]]
+
+def copy_to_assets(job, f):
+    """Copiaza un fisier din biblioteca in folderul proiectului (o singura data, chiar daca il folosesti de mai multe ori)."""
+    import shutil
+    adir = Path(job["dir"]) / core.ASSETS
+    adir.mkdir(exist_ok=True)
+    dst = adir / safe_name(f.name, "fisier" + f.suffix)
+    if not (dst.exists() and dst.stat().st_size == f.stat().st_size):
+        dst = unique_path(dst)
+        shutil.copyfile(f, dst)
+    return dst
 
 def pick_folder(title):
     """Fereastra Windows de alegere a unui folder (intr-un proces separat)."""
@@ -575,10 +647,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(b)
-        elif path == "/api/sfx":
-            self._json(sfx_scan())
-        elif len(parts) >= 3 and parts[0] == "sfx":
-            f = sfx_file(parts[1], "/".join(parts[2:]))
+        elif len(parts) == 2 and parts[0] == "api" and parts[1] in LIB_URL:
+            self._json(lib_scan(LIB_URL[parts[1]]))
+        elif len(parts) >= 3 and parts[0] in LIB_URL:
+            f = lib_file(LIB_URL[parts[0]], parts[1], "/".join(parts[2:]))
             if not f:
                 return self._json({"error": "nu există"}, 404)
             self._send_file(f)
@@ -598,7 +670,8 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     draft = None
             self._json({"draft": draft, "project": {k: pr.get(k) for k in ("width", "height", "fps", "source_duration",
-                                                           "segments", "captions", "overlays", "audio", "look", "zooms", "transitions")},
+                                                           "segments", "captions", "overlays", "audio", "look", "zooms", "transitions",
+                                                           "materials_pending")},
                         "look_presets": core.COLOR_PRESETS, "look_default": core.load_default_look(),
                         "source": f"/media/{job['id']}/source", "asset_base": f"/asset/{job['id']}",
                         "assets": assets, "busy": job["status"] in ("running", "queued")})
@@ -646,6 +719,12 @@ class Handler(BaseHTTPRequestHandler):
             if not job or not job["dir"] or name != parts[2]:
                 return self._json({"error": "nu există"}, 404)
             self._send_file(Path(job["dir"]) / core.ASSETS / name)
+        elif len(parts) == 3 and parts[0] == "material":                 # materialele unui video inca nepornit
+            job = jobs.get(parts[1])
+            name = Path(parts[2]).name
+            if not job or name != parts[2]:
+                return self._json({"error": "nu există"}, 404)
+            self._send_file(material_dir(job) / name)
         elif len(parts) == 2 and parts[0] == "fonts" and parts[1] in core.FONT_FILES:
             self._send_file(core.FONT_DIR / parts[1], "font/ttf")
         elif len(parts) == 3 and parts[:2] == ["api", "captions"]:
@@ -812,7 +891,11 @@ class Handler(BaseHTTPRequestHandler):
             job = jobs.get(parts[2])
             body = self._read_json()
             if job and job["status"] == "draft" and isinstance(body, dict):
-                job["draft"] = {"script": str(body.get("script", ""))[:30000]}
+                if "script" in body:
+                    job["draft"] = {**job["draft"], "script": str(body.get("script", ""))[:30000]}
+                if isinstance(body.get("materials"), list):
+                    job["draft"]["materials"] = clean_materials(job, body["materials"])
+                    emit(job)
             return self._json({"ok": True})
         if path == "/api/start" or (len(parts) == 3 and parts[:2] == ["api", "start"]):
             body = self._read_json() or {}
@@ -826,7 +909,7 @@ class Handler(BaseHTTPRequestHandler):
                 script = body.get("script") if len(parts) == 3 and isinstance(body.get("script"), str) else job["draft"].get("script", "")
                 cfg = core.merge_settings({**settings, "script": script})
                 job.update(settings=cfg, settings_view=core.settings_summary(cfg), status="queued")
-                job["draft"] = {"script": cfg["script"]}
+                job["draft"] = {**job["draft"], "script": cfg["script"]}
                 emit(job)
                 work_q.put(("process", jid, None))
                 started.append(jid)
@@ -835,42 +918,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "started": started})
         if len(parts) == 3 and parts[:2] == ["api", "asset"]:
             return self._upload_asset(parts[2])
-        if path == "/api/sfx/pick":
-            p = pick_folder("Alege folderul cu sunete")
-            return self._json({"path": p} if p else {"error": "Nu am putut deschide fereastra de alegere. Lipește calea folderului în căsuță."})
-        if path == "/api/sfx/folder":
-            body = self._read_json() or {}
-            p = str(body.get("path", "")).strip().strip('"')
-            if not p or not Path(p).is_dir():
-                return self._json({"error": "Nu găsesc folderul acesta. Verifică calea."}, 400)
-            d = libs_load()
-            if str(Path(p)) not in [str(Path(x)) for x in d["sfx"]]:
-                d["sfx"].append(str(Path(p)))
-                libs_save(d)
-            return self._json(sfx_scan())
-        if path == "/api/sfx/remove":
-            body = self._read_json() or {}
-            d = libs_load()
-            try:
-                d["sfx"].pop(int(body.get("index")))
-                libs_save(d)
-            except (ValueError, IndexError, TypeError):
-                pass
-            return self._json(sfx_scan())
-        if len(parts) == 4 and parts[:3] == ["api", "sfx", "use"]:
-            job = jobs.get(parts[3])
-            body = self._read_json() or {}
-            f = sfx_file(body.get("lib", -1), str(body.get("rel", "")))
-            if not job or not job["dir"] or not f:
-                return self._json({"error": "Nu găsesc sunetul."}, 404)
-            adir = Path(job["dir"]) / core.ASSETS
-            adir.mkdir(exist_ok=True)
-            dst = adir / safe_name(f.name, "sunet" + f.suffix)
-            if not (dst.exists() and dst.stat().st_size == f.stat().st_size):
-                dst = unique_path(dst)
-                import shutil
-                shutil.copyfile(f, dst)
-            return self._json(core.asset_info(dst))
+        if len(parts) >= 3 and parts[0] == "api" and parts[1] in LIB_URL:      # /api/sfx/... si /api/medialib/...
+            kind = LIB_URL[parts[1]]
+            what = "sunete" if kind == "sfx" else "poze și clipuri"
+            if parts[2] == "pick":
+                p = pick_folder(f"Alege folderul cu {what}")
+                return self._json({"path": p} if p else {"error": "Nu am putut deschide fereastra de alegere. Lipește calea folderului în căsuță."})
+            if parts[2] == "folder":
+                body = self._read_json() or {}
+                p = str(body.get("path", "")).strip().strip('"')
+                if not p or not Path(p).is_dir():
+                    return self._json({"error": "Nu găsesc folderul acesta. Verifică calea."}, 400)
+                d = libs_load()
+                if str(Path(p)) not in [str(Path(x)) for x in d[kind]]:
+                    d[kind].append(str(Path(p)))
+                    libs_save(d)
+                return self._json(lib_scan(kind))
+            if parts[2] == "remove":
+                body = self._read_json() or {}
+                d = libs_load()
+                try:
+                    d[kind].pop(int(body.get("index")))
+                    libs_save(d)
+                except (ValueError, IndexError, TypeError):
+                    pass
+                return self._json(lib_scan(kind))
+            if parts[2] == "use" and len(parts) == 4:
+                job = jobs.get(parts[3])
+                body = self._read_json() or {}
+                f = lib_file(kind, body.get("lib", -1), str(body.get("rel", "")))
+                if not job or not job["dir"] or not f:
+                    return self._json({"error": "Nu găsesc fișierul în bibliotecă."}, 404)
+                return self._json(core.asset_info(copy_to_assets(job, f)))
         if path == "/api/assistant/config":
             body = self._read_json() or {}
             try:
@@ -972,7 +1051,8 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json() or {}
             names = [f"{it['cat']} / {it['name']}" for it in sfx_scan()["items"]]
             try:
-                res = assistant.propose(core.load_project(job["dir"]), body.get("state") or {}, names)
+                res = assistant.propose(core.load_project(job["dir"]), body.get("state") or {}, names,
+                                        lib_names("media"))
             except assistant.AssistantError as e:
                 return self._json({"error": str(e)}, 400)
             except Exception as e:
@@ -1047,10 +1127,11 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = 0
         name = Path(urllib.parse.unquote(self.headers.get("X-Filename", "fisier")).replace("\\", "/")).name
-        ok = job and job["dir"] and Path(name).suffix.lower() in core.ASSET_EXT and 0 < length < 4 * 1024 ** 3
-        adir = Path(job["dir"]) / core.ASSETS if ok else None
+        draft = bool(job) and job["status"] == "draft"          # materialele urcate odata cu video-ul, inainte de procesare
+        ok = job and (job["dir"] or draft) and Path(name).suffix.lower() in core.ASSET_EXT and 0 < length < 4 * 1024 ** 3
+        adir = (material_dir(job) if draft else Path(job["dir"]) / core.ASSETS) if ok else None
         if adir:
-            adir.mkdir(exist_ok=True)
+            adir.mkdir(parents=True, exist_ok=True)
         dst = unique_path(adir / safe_name(name, "fisier")) if ok else None
         left = length
         f = open(dst, "wb") if dst else None

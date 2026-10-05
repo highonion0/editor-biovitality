@@ -17,6 +17,24 @@ Vezi totul live, într-o interfață în browser. Rulează doar pe calculatorul 
   `video_taiat.mp4`, `video_final.mp4` (cu subtitrări), `subtitrari.srt`, `transcript.txt`.
 - Închizi aplicația din butonul de pornire/oprire din dreapta sus.
 
+## 📎 Materiale obligatorii (la încărcare)
+Pe ecranul unde adaugi scriptul, înainte de „▶ Pornește”, tragi pozele / clipurile care trebuie să apară sigur.
+- La fiecare poți scrie **unde**: „când zic de ashwagandha”, „la început”, „la final”, „0:12”.
+- Alegi **cum apare**: ▣ Mic peste video, ⛶ Tot ecranul sau 🧍 Tu peste el.
+- După transcriere, aplicația le pune singură pe timeline. Fără indicație, locul îl alege Claude (cu cheia API).
+- Ce nu-și găsește locul apare în Timeline, la Proprietăți, ca „📎 de pus”: muți cursorul și apeși pe nume.
+
+## 🧍 Tu peste el (video-uri explicative pe o poză)
+Selectezi o poză sau un clip din Timeline și apeși **🧍 Tu peste el**. Poza / clipul umple ecranul în spate,
+iar tu apari într-o fereastră: ▭ dreptunghi, ● cerc sau ▯ vertical, cu mărimea și poziția alese. Fereastra intră și iese lin.
+Varianta cu tine **decupat** de fundal (ca efectul green screen de pe TikTok) vine cu „scoaterea fundalului” (punctul 1 din listă).
+
+## 📚 Biblioteca ta (tabul „📚 Bibliotecă”)
+- **🖼 Poze și clipuri:** alegi folderul cu materialele tale (logo, produse, ingrediente, ambalaje, B-roll).
+  Fiecare subfolder devine o categorie. Click pe o poză = o pui la cursor, în modul ales.
+- Dă fișierelor nume care spun ce e în ele. După nume le găsește și Claude, care le propune în „💡 Propuneri” înainte de B-roll-ul de generat.
+- **♪ Sunete:** biblioteca de efecte sonore, ca înainte.
+
 ## Video-uri lungi (10 minute sau mai mult)
 Merg. Un video de 10 minute, cu ~150 de bucăți după tăierea pauzelor, se lipește folosind cam 2 GB de memorie.
 Durează mai mult decât un video scurt: transcrierea, randarea și propunerile lui Claude cresc odată cu durata.
