@@ -348,12 +348,18 @@ function tlPaint() {
     if (el.parentElement !== host) host.appendChild(el);
     el.dataset.i = k;
     const vis = T.t >= o.start && T.t < Math.min(o.end, total);
-    const full = o.type === 'slot' || o.fit === 'cover' || o.fit === 'bg';          // pe tot cadrul
+    const full = o.type === 'slot' || o.fit === 'cover';          // pe tot cadrul
     const m = moAt(o, T.t);                                        // keyframes + animatii de intrare/iesire
+    if (o.fit === 'bg') {                                          // fundal: poza intreaga / decupata, cu marime si pozitie
+      const r = moBgRect(o.bgimg || BG_DEFAULT, o.ar || 1, stage.clientWidth, stage.clientHeight);
+      Object.assign(el.style, { display: vis ? 'block' : 'none', left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px',
+        objectFit: 'fill', opacity: m.opacity, zIndex: 0, transform: 'none', borderRadius: '0' });
+    } else {
     const wpx = full ? stage.clientWidth : m.w * stage.clientWidth, hpx = full ? stage.clientHeight : wpx * (o.ar || 1);
     Object.assign(el.style, { display: vis ? 'block' : 'none', left: full ? '50%' : m.x * 100 + '%', top: full ? '50%' : m.y * 100 + '%',
       width: wpx + 'px', height: hpx + 'px', objectFit: full ? 'cover' : 'fill', opacity: m.opacity, zIndex: 10 + (o.lane || 0),
       transform: `translate(-50%, -50%) rotate(${full ? 0 : m.rotation}deg)`, borderRadius: full ? '0' : ((o.radius || 0) / 100) * Math.min(wpx, hpx) + 'px' });
+    }
     if (o.type === 'slot') {
       const sig = (o.idea || '') + '|' + fmtTC(o.start) + fmtTC(o.end);
       if (el._sig !== sig) { el._sig = sig; el.innerHTML = `<div><b>⬚ B-roll de pus aici</b><span>${esc(o.idea || 'Scrie ce trebuie să se vadă')}</span>
@@ -421,6 +427,8 @@ function moPaintVideo() {
   const wrap = $('#tVids'); if (!wrap) return;
   // „tu peste el”: video-ul tau intra intr-o fereastra peste fundal (aceleasi formule ca la randare)
   const stage = $('#tStage'), r = stage ? moMainRect(T.t, stage.clientWidth, stage.clientHeight) : null;
+  const bgo = T.ovs.find(x => x.fit === 'bg' && T.t >= x.start && T.t < x.end), bgl = $('#tBgL');
+  if (bgl) bgl.style.background = bgo ? (bgo.bgimg || BG_DEFAULT).color : 'transparent';
   Object.assign(wrap.style, r ? { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', right: 'auto', bottom: 'auto',
     borderRadius: r.r + 'px', overflow: 'hidden', boxShadow: '0 8px 26px rgba(0,0,0,.45)' }
     : { left: '', top: '', width: '', height: '', right: '', bottom: '', borderRadius: '', overflow: '', boxShadow: '' });
@@ -444,6 +452,11 @@ function moPipRect(pip, W, H) {    // ca core.pip_rect
   const h = Math.min(H, pip.w * W * ar), w = h / ar;
   const x = Math.min(Math.max(0, pip.x * W - w / 2), W - w), y = Math.min(Math.max(0, pip.y * H - h / 2), H - h);
   return { x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : Math.min(w, h) * 0.06 };
+}
+const BG_DEFAULT = { fit: 'contain', scale: 1, y: 0.5, color: '#000000' };
+function moBgRect(b, ar, W, H) {   // ca core.bg_rect
+  const w = (b.fit === 'cover' ? Math.max(W, H / ar) : Math.min(W, H / ar)) * b.scale, h = w * ar;
+  return { x: (W - w) / 2, y: b.y * H - h / 2, w, h };
 }
 function moMainRect(t, W, H) {     // ca mainRect din Main.tsx: intrare / iesire lina de 0,35 s
   const o = T.ovs.find(x => x.fit === 'bg' && x.pip && t >= x.start && t < x.end); if (!o) return null;
@@ -570,10 +583,19 @@ function tlRestoreCut(k, only) {
 }
 /* „🧍 Tu peste el”: fereastra in care apari tu peste fundal */
 const PIP_DEFAULT = { shape: 'rect', w: 0.62, x: 0.5, y: 0.74 };
+// poza intreaga; daca e mai lata decat ecranul, sta putin mai sus, ca fereastra ta sa incapa dedesubt
+const bgDefaultFor = o => ({ ...BG_DEFAULT, y: (o.ar || 1) < 16 / 9 ? 0.4 : 0.5 });
 function pipPanel(o) {
   const p = o.pip || PIP_DEFAULT, sh = (k, l) => `<button class="tbtn ${p.shape === k ? 'on' : ''}" data-shape="${k}">${l}</button>`;
   const sl = (k, l, min, max) => `<label>${l}</label><input type="range" data-pk="${k}" min="${min}" max="${max}" step="0.005" value="${p[k]}"><output data-po="${k}">${Math.round(p[k] * 100)}%</output>`;
-  return `<div class="pipbox"><b>🧍 Fereastra ta</b><span class="sub2" style="margin:0">Poza / clipul e în spate, tu apari aici. Intră și iese lin.</span>
+  const g = o.bgimg || BG_DEFAULT;
+  const gsl = (k, l, min, max, fmt) => `<label>${l}</label><input type="range" data-gk="${k}" min="${min}" max="${max}" step="0.01" value="${g[k]}"><output data-go="${k}">${fmt(g[k])}</output>`;
+  return `<div class="pipbox"><b>🖼 Poza din spate</b>
+    <div class="row"><button class="tbtn ${g.fit === 'contain' ? 'on' : ''}" data-gfit="contain">Se vede toată</button>
+      <button class="tbtn ${g.fit === 'cover' ? 'on' : ''}" data-gfit="cover">Umple ecranul</button>
+      <label class="gcol">Culoare fundal <input type="color" id="gCol" value="${g.color}"></label></div>
+    <div class="kv">${gsl('scale', 'Mărime poză', 0.3, 2, v => Math.round(v * 100) + '%')}${gsl('y', 'Poziție verticală', 0, 1, v => Math.round(v * 100) + '%')}</div></div>
+    <div class="pipbox"><b>🧍 Fereastra ta</b><span class="sub2" style="margin:0">Poza / clipul e în spate, tu apari aici. Intră și iese lin.</span>
     <div class="row">${sh('rect', '▭ Dreptunghi')}${sh('circle', '● Cerc')}${sh('tall', '▯ Vertical')}</div>
     <div class="row"><button class="tbtn" data-ppos="0.5,0.74">⬇ Jos</button><button class="tbtn" data-ppos="0.3,0.76">↙ Stânga jos</button>
       <button class="tbtn" data-ppos="0.7,0.76">↘ Dreapta jos</button><button class="tbtn" data-ppos="0.5,0.28">⬆ Sus</button></div>
@@ -581,6 +603,18 @@ function pipPanel(o) {
 }
 function pipBind(p, o) {
   o.pip = o.pip || { ...PIP_DEFAULT };
+  o.bgimg = o.bgimg || { ...BG_DEFAULT };
+  p.querySelectorAll('[data-gfit]').forEach(b => b.onclick = () => tlChange(() => { o.bgimg.fit = b.dataset.gfit; o.bgimg.scale = 1; }));
+  const col = $('#gCol', p); let cprev = null;
+  col.onfocus = () => { cprev = tlSnap(); };
+  col.oninput = () => { o.bgimg.color = col.value; tlPaint(); };
+  col.onchange = () => { tlCommit(cprev || tlSnap()); cprev = null; };
+  let gprev = null;
+  p.querySelectorAll('input[data-gk]').forEach(inp => {
+    inp.onpointerdown = () => { gprev = tlSnap(); };
+    inp.oninput = () => { o.bgimg[inp.dataset.gk] = +inp.value; p.querySelector(`[data-go="${inp.dataset.gk}"]`).textContent = Math.round(+inp.value * 100) + '%'; tlPaint(); };
+    inp.onchange = () => { tlCommit(gprev || tlSnap()); gprev = null; };
+  });
   p.querySelectorAll('[data-shape]').forEach(b => b.onclick = () => tlChange(() => { o.pip.shape = b.dataset.shape; }));
   p.querySelectorAll('[data-ppos]').forEach(b => b.onclick = () => tlChange(() => { const [x, y] = b.dataset.ppos.split(',').map(Number); o.pip.x = x; o.pip.y = y; }));
   let prev = null;
@@ -602,7 +636,7 @@ function tlMediaOverlay(info, a, b, mode) {
     start: +a.toFixed(3), end: +b.toFixed(3), x: 0.5, y: 0.35, w: portrait ? 0.45 : 0.8, opacity: 1, muted: true, source_start: 0,
     lane: tlFreeLane(a, b), rotation: 0, radius: 0, ar: info.width ? +(info.height / info.width).toFixed(5) : 1 };
   if (mode === 'full') o.fit = 'cover';
-  else if (mode === 'bg') { o.fit = 'bg'; o.pip = { ...PIP_DEFAULT }; }
+  else if (mode === 'bg') { o.fit = 'bg'; o.pip = { ...PIP_DEFAULT }; o.bgimg = bgDefaultFor(o); }
   else if (mode === 'small') { o.radius = 4; o.anim_in = 'pop'; o.anim_out = 'fade'; }
   return o;
 }
@@ -1141,7 +1175,7 @@ function tlInspector() {
       </div>`;
     if (o.fit !== 'cover' && o.fit !== 'bg') moBindKeys(p, o);
     if (o.fit === 'bg') pipBind(p, o);
-    $('#iBg').onclick = () => tlChange(() => { if (o.fit === 'bg') { o.fit = 'free'; if (o.w > 0.95) o.w = 0.8; } else { o.fit = 'bg'; o.pip = o.pip || { ...PIP_DEFAULT }; } });
+    $('#iBg').onclick = () => tlChange(() => { if (o.fit === 'bg') { o.fit = 'free'; if (o.w > 0.95) o.w = 0.8; } else { o.fit = 'bg'; o.pip = o.pip || { ...PIP_DEFAULT }; o.bgimg = o.bgimg || bgDefaultFor(o); } });
     $('#iRot90').onclick = () => tlChange(() => { o.rotation = ((((o.rotation || 0) + 90) + 540) % 360) - 180; });
     let prev = null;
     p.querySelectorAll('input[type=range][data-k]').forEach(inp => {

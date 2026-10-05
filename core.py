@@ -967,7 +967,7 @@ def clean_overlays(raw, total, assets_dir):
             "ar": ar_cache[name],                                     # inaltime / latime
             # cover = umple tot cadrul (decupat); bg = fundal: umple cadrul IN SPATELE tau, iar tu apari intr-o fereastra (pip)
             "fit": o.get("fit") if o.get("fit") in ("cover", "bg") else "free",
-            **({"pip": clean_pip(o.get("pip"))} if o.get("fit") == "bg" else {}),
+            **({"pip": clean_pip(o.get("pip")), "bgimg": clean_bgimg(o.get("bgimg"))} if o.get("fit") == "bg" else {}),
             "prompt": str(o.get("prompt", ""))[:3000], "idea": str(o.get("idea", ""))[:300], **_motion(o, total),
         })
     return out
@@ -982,6 +982,22 @@ def clean_pip(raw):
             "w": round(_num(raw.get("w"), 0.2, 1.0, PIP_DEFAULT["w"]), 4),
             "x": round(_num(raw.get("x"), 0.0, 1.0, PIP_DEFAULT["x"]), 4),
             "y": round(_num(raw.get("y"), 0.0, 1.0, PIP_DEFAULT["y"]), 4)}
+
+def clean_bgimg(raw):
+    """Cum sta poza / clipul-fundal: intreaga (contain) sau umple ecranul (cover), marimea, pozitia pe verticala,
+    plus culoarea din spate (unde poza nu ajunge)."""
+    raw = raw if isinstance(raw, dict) else {}
+    return {"fit": "cover" if raw.get("fit") == "cover" else "contain",
+            "scale": round(_num(raw.get("scale"), 0.3, 2.0, 1.0), 3),
+            "y": round(_num(raw.get("y"), 0.0, 1.0, 0.5), 4),
+            "color": _hex(raw.get("color"), "#000000")}
+
+def bg_rect(bgimg, ar, W, H):
+    """Poza-fundal in pixeli: (x, y, latime, inaltime). ar = inaltime / latime. Aceleasi formule ca in timeline.js si Main.tsx."""
+    ar = ar or 1.0
+    w = (max if bgimg["fit"] == "cover" else min)(W, H / ar) * bgimg["scale"]
+    h = w * ar
+    return (W - w) / 2, bgimg["y"] * H - h / 2, w, h
 
 def pip_rect(pip, W, H):
     """Fereastra in pixeli: (x, y, w, h, raza). Aceleasi formule ca in previzualizare (timeline.js) si Remotion (Main.tsx)."""
@@ -1600,6 +1616,10 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
             wpx = W if cover else max(2, int(W * o["w"] / 2) * 2)
             hpx = H if cover else max(2, int(wpx * o.get("ar", 1) / 2) * 2)
             fitf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}" if cover else f"scale={wpx}:{hpx}"
+            if bg:                                      # fundalul: poza intreaga sau decupata, cu marimea si pozitia ei
+                bx, by, bw, bh = bg_rect(clean_bgimg(o.get("bgimg")), o.get("ar", 1), W, H)
+                bw, bh = max(2, int(bw / 2) * 2), max(2, int(bh / 2) * 2)
+                fitf = f"scale={bw}:{bh}"
             if cover:
                 o = {**o, "x": 0.5, "y": 0.5, "rotation": 0}
             if o["type"] == "image":
@@ -1646,7 +1666,9 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
                 inputs.append(["-loop", "1", "-t", f"{total:.3f}", "-i", str(mask.resolve())])
                 parts.append(f"[{k}:v]format=gray[wm{n}m]")
                 parts.append(f"[wr{n}][wm{n}m]alphamerge[wm{n}]")
-                parts.append(f"[bk{n}][o{n}]overlay=0:0:{en}:eof_action=pass[bc{n}]")
+                col = clean_bgimg(o.get("bgimg"))["color"].lstrip("#")
+                parts.append(f"[bk{n}]drawbox=x=0:y=0:w=iw:h=ih:color=0x{col}@1:t=fill:{en}[bf{n}]")
+                parts.append(f"[bf{n}][o{n}]overlay={int(bx)}:{int(by)}:{en}:eof_action=pass[bc{n}]")
                 parts.append(f"[bc{n}][wm{n}]overlay={int(px)}:{int(py)}:{en}[b{n}]")
             else:
                 parts.append(f"[b{n - 1}][o{n}]overlay=x=main_w*{o['x']}-overlay_w/2:y=main_h*{o['y']}-overlay_h/2:"
@@ -1943,6 +1965,7 @@ def material_overlay(info, start, end, mode, lane=0):
         o["fit"] = "cover"
     elif mode == "bg":
         o["fit"], o["pip"] = "bg", dict(PIP_DEFAULT)
+        o["bgimg"] = {"fit": "contain", "scale": 1.0, "color": "#000000", "y": 0.4 if h / w < 16 / 9 else 0.5}
     else:
         o.update(radius=4, anim_in="pop", anim_out="fade")
     return o

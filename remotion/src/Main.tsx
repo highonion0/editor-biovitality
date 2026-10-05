@@ -3,7 +3,7 @@ import {AbsoluteFill, Audio, Img, interpolate, OffthreadVideo, Sequence, Series,
 import {loadFont} from '@remotion/fonts';
 import {Captions} from './Captions';
 import {Graphic, TEMPLATES} from './Graphic';
-import type {AudioItem, FontDef, Keyframe, Overlay, Pip, Project, Zoom} from './types';
+import type {AudioItem, BgImg, FontDef, Keyframe, Overlay, Pip, Project, Zoom} from './types';
 
 /* ---- miscarea: ACELEASI reguli ca in previzualizarea din editor (motion.js) ---- */
 const ease = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -67,6 +67,11 @@ export const pipRect = (pip: Pip, W: number, H: number) => {
   const x = Math.min(Math.max(0, pip.x * W - w / 2), W - w), y = Math.min(Math.max(0, pip.y * H - h / 2), H - h);
   return {x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : Math.min(w, h) * 0.06};
 };
+// poza-fundal: intreaga (contain) sau umple ecranul (cover), cu marimea si pozitia ei (ca core.bg_rect)
+export const bgRect = (b: BgImg, ar: number, W: number, H: number) => {
+  const w = (b.fit === 'cover' ? Math.max(W, H / ar) : Math.min(W, H / ar)) * b.scale, h = w * ar;
+  return {x: (W - w) / 2, y: b.y * H - h / 2, w, h};
+};
 // la momentul t: dreptunghiul tau (tot cadrul sau fereastra), cu intrare / iesire lina de 0,35 s
 export const mainRect = (overlays: Overlay[], t: number, W: number, H: number) => {
   const o = overlays.find((x) => x.fit === 'bg' && x.pip && t >= x.start && t < x.end);
@@ -111,7 +116,10 @@ const OverlayItem: React.FC<{o: Overlay; dur: number}> = ({o, dur}) => {
   const oop = keyAt(o.keys, 'opacity', t, o.opacity ?? 1) * a.op;
   const wpx = ow * width, hpx = wpx * (o.ar ?? 1);
   // cover = umple tot cadrul, decupat (B-roll pe tot ecranul)
-  const style: React.CSSProperties = o.fit === 'cover' || o.fit === 'bg'
+  const br = o.fit === 'bg' && o.bgimg ? bgRect(o.bgimg, o.ar ?? 1, width, useVideoConfig().height) : null;
+  const style: React.CSSProperties = br
+    ? {position: 'absolute', left: br.x, top: br.y, width: br.w, height: br.h, objectFit: 'fill', opacity: oop}
+    : o.fit === 'cover' || o.fit === 'bg'
     ? {position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: oop}
     : {
       position: 'absolute', left: `${ox * 100}%`, top: `${oy * 100}%`, width: wpx, height: hpx,
@@ -216,7 +224,8 @@ export const Main: React.FC<Project> = (p) => {
       {p.overlays.map((o, i) => {
         if (o.fit !== 'bg') return null;
         const from = Math.round(o.start * fps), dur = Math.max(1, Math.round(o.end * fps) - from);
-        return <Sequence key={`b${i}`} from={from} durationInFrames={dur}><OverlayItem o={o} dur={dur} /></Sequence>;
+        return <Sequence key={`b${i}`} from={from} durationInFrames={dur}>
+          <AbsoluteFill style={{backgroundColor: o.bgimg?.color ?? '#000000'}} /><OverlayItem o={o} dur={dur} /></Sequence>;
       })}
       {/* pista principala: bucatile pastrate din video-ul sursa, cu zoom si tranzitii (intr-o fereastra peste un fundal) */}
       <MainWindow p={p} />
