@@ -25,6 +25,22 @@ Alternativ, selectează bucata și apasă **◀ Mută mai devreme / Mută mai t�
   Cele care trec peste mai multe bucăți (de ex. muzica de fundal) rămân pe loc.
 - Între două bucăți mutate una lângă alta apare semnul **⋮**: click pe el ca să pui o tranziție.
 
+## 📣 Publicare (în Timeline, tabul „📣 Publicare”)
+Ai nevoie de cheia API Claude (tabul Asistent).
+
+**Pachetul de publicare**
+- Bifezi platformele (TikTok, Instagram, YouTube Shorts, Facebook). Opțional, scrii indicații pentru Claude.
+- Apeși **✦ Scrie pachetul**. Claude scrie, pentru fiecare platformă, descrierea, hashtag-urile, textul de pe copertă și primul comentariu, doar din ce spui în video.
+- Poți modifica orice text. Butonul 📋 îl copiază. Totul se salvează și în `publicare.txt`, în folderul video-ului.
+- **Coperta:** muți cursorul pe cadrul dorit și apeși **🖼 Fă coperta**. Se salvează ca `coperta.jpg`, cu textul în culorile brandului.
+
+**Variante de cârlig (A/B)**
+- Același video, cu alt început: o frază puternică din video pusă la început și/sau alt titlu mare în primele secunde.
+- **✦ Propune 3 cârlige**: Claude alege frazele și titlurile. Sau adaugi tu variante: **+ Variantă cu fraza de la cursor** ori **+ Doar alt titlu**.
+- **▶ Ascultă** redă fraza aleasă. Titlul și cuvântul colorat se pot modifica.
+- **🎬 Randează variantele** creează `varianta_A.mp4`, `varianta_B.mp4`… lângă video-ul final. Video-ul final rămâne neschimbat.
+- Titlul mare apare animat doar cu motorul Remotion. Cu motorul clasic apare ca un card fix.
+
 ## Mișcare: zoom, keyframes, tranziții (doar cu motorul Remotion)
 - **🔍 Zoom** (sau tasta **Z**): bloc de zoom pe pista lui, la cursor. Stil **Punch / Lin / Apropiere**, cât de mult (1,05–1,6×),
   iar cu zoom-ul selectat **click pe video** alege punctul pe care se centrează. Claude îl poate propune și pune.

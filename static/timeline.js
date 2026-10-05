@@ -126,7 +126,7 @@ function buildTimeline() {
         </div>
         <div id="tSzHost"></div>
       </div>
-      <div class="card tinsp" id="tInsp"><div class="itabs" id="tTabs"><button data-t="props">Proprietăți</button><button data-t="cap">Aa Subtitrări</button><button data-t="look">🎨 Look</button><button data-t="sfx">♪ Sunete</button><button data-t="prop">💡 Propuneri</button><button data-t="ai">✦ Asistent</button></div><div id="tInspBody"></div></div>
+      <div class="card tinsp" id="tInsp"><div class="itabs" id="tTabs"><button data-t="props">Proprietăți</button><button data-t="cap">Aa Subtitrări</button><button data-t="look">🎨 Look</button><button data-t="sfx">♪ Sunete</button><button data-t="prop">💡 Propuneri</button><button data-t="pub">📣 Publicare</button><button data-t="ai">✦ Asistent</button></div><div id="tInspBody"></div></div>
     </div>
     <div class="card tlcard">
       <div class="tltools">
@@ -179,7 +179,7 @@ function buildTimeline() {
 function tlTabs() {
   document.querySelectorAll('#tTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === T.tab));
   if (T.tab === 'ai') renderAssistant(); else if (T.tab === 'sfx') renderSfx(); else if (T.tab === 'prop') renderProposals();
-  else if (T.tab === 'cap') renderCaptionsTab(); else if (T.tab === 'look') renderLook(); else tlInspector();
+  else if (T.tab === 'cap') renderCaptionsTab(); else if (T.tab === 'look') renderLook(); else if (T.tab === 'pub') renderPublish(); else tlInspector();
 }
 
 /* ---------------------------------------------------------------- randare timeline */

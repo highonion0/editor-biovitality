@@ -41,7 +41,7 @@ UI_FILE = ROOT / "ui.html"
 STATIC_FILES = {"timeline.js": "text/javascript; charset=utf-8", "timeline.css": "text/css; charset=utf-8",
                 "graphics.js": "text/javascript; charset=utf-8", "assistant.js": "text/javascript; charset=utf-8",
                 "sounds.js": "text/javascript; charset=utf-8", "look.js": "text/javascript; charset=utf-8", "safezones.js": "text/javascript; charset=utf-8", "motion.js": "text/javascript; charset=utf-8", "proposals.js": "text/javascript; charset=utf-8",
-                "captions_tl.js": "text/javascript; charset=utf-8"}
+                "captions_tl.js": "text/javascript; charset=utf-8", "publish.js": "text/javascript; charset=utf-8"}
 APP_ID = "biovitality-editor"
 CHUNK = 16 * 1024 * 1024
 BASE_PORT = 8765
@@ -201,6 +201,12 @@ def _files_in(d, pr):
             files[k] = f
     if (pr.get("captions") or {}).get("cues"):
         files["captions"] = core.PROJECT_FILE
+    for f in sorted(d.glob("varianta_*.mp4")):              # variantele de carlig (A/B)
+        files["var_" + f.stem.split("_", 1)[1]] = f.name
+    if (d / core.COVER_FILE).exists():
+        files["cover"] = core.COVER_FILE
+    if (d / "publicare.txt").exists():
+        files["pack"] = "publicare.txt"
     return files
 
 def load_existing_projects():
@@ -345,6 +351,41 @@ def run_reburn(job, cap):
         traceback.print_exc()
     emit(job)
 
+def run_variants(job, payload):
+    """Randeaza pe rand variantele de carlig salvate in proiect: varianta_A.mp4, varianta_B.mp4..."""
+    st = job["stages"]
+    report = make_report(job)
+    t0 = time.time()
+    try:
+        project = core.load_project(job["dir"])
+        hooks = project.get("hooks") or []
+        keep = {f"varianta_{h['label']}.mp4" for h in hooks}
+        for old in Path(job["dir"]).glob("varianta_*.mp4"):         # variantele sterse dispar si din folder
+            if old.name not in keep:
+                old.unlink(missing_ok=True)
+        for k in [k for k in job["files"] if k.startswith("var_")]:
+            job["files"].pop(k)
+        for i, v in enumerate(hooks, 1):
+            add_log(job, f"Randez varianta {v['label']} ({i} din {len(hooks)})...")
+            st[2].update(status="active", progress=0, detail=f"Varianta {v['label']} · {i} din {len(hooks)}")
+            emit(job)
+            name = core.render_variant(job["dir"], project, v, report, source_url(job), asset_url(job),
+                                       captions=job["settings"].get("burn_captions", True))
+            job["files"][f"var_{v['label']}"] = name
+            emit(job)
+        st[2].update(status="done", progress=100, detail=f"{len(hooks)} variante gata")
+        job["status"], job["error"] = "done", None
+        add_log(job, f"Variantele de cârlig sunt gata ({time.time() - t0:.0f} secunde): "
+                     + ", ".join(f"varianta_{h['label']}.mp4" for h in hooks))
+        save_job_meta(job)
+    except Exception as e:
+        job["status"] = "error"
+        job["error"] = friendly(e)
+        st[2]["status"] = "error"
+        add_log(job, "EROARE: " + str(e)[-900:])
+        traceback.print_exc()
+    emit(job)
+
 def worker():
     while True:
         kind, jid, payload = work_q.get()
@@ -357,6 +398,8 @@ def worker():
             run_reburn(job, payload)
         elif kind == "timeline":
             run_timeline(job, payload)
+        elif kind == "variants":
+            run_variants(job, payload)
 
 def init_device():
     try:
@@ -553,6 +596,17 @@ class Handler(BaseHTTPRequestHandler):
                         "look_presets": core.COLOR_PRESETS, "look_default": core.load_default_look(),
                         "source": f"/media/{job['id']}/source", "asset_base": f"/asset/{job['id']}",
                         "assets": assets, "busy": job["status"] in ("running", "queued")})
+        elif len(parts) == 3 and parts[:2] == ["api", "publish"]:
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            pr = core.load_project(job["dir"])
+            f = job["files"]
+            self._json({"pack": assistant.load_pack(job["dir"]), "hooks": pr.get("hooks") or [],
+                        "variants": {k[4:]: v for k, v in f.items() if k.startswith("var_")},
+                        "cover": f"/media/{job['id']}/cover?v={int((Path(job['dir']) / core.COVER_FILE).stat().st_mtime)}"
+                                 if f.get("cover") and (Path(job["dir"]) / core.COVER_FILE).exists() else None,
+                        "busy": job["status"] in ("running", "queued")})
         elif len(parts) == 3 and parts[:2] == ["api", "preview"]:
             job = self._job_with_project(parts[2])
             if not job:
@@ -610,7 +664,7 @@ class Handler(BaseHTTPRequestHandler):
                 p = Path(job["dir"]) / "_filmstrip.jpg"
             elif parts[2] == "source" and job["dir"] and (Path(job["dir"]) / core.PROJECT_FILE).exists():
                 p = core.project_source(job["dir"], core.load_project(job["dir"]))
-            elif parts[2] in ("cut", "final") and job["dir"] and job["files"].get(parts[2]):
+            elif (parts[2] in ("cut", "final", "cover") or parts[2].startswith("var_")) and job["dir"] and job["files"].get(parts[2]):
                 p = Path(job["dir"]) / job["files"][parts[2]]
             elif parts[2] == "cut" and job["dir"]:
                 p = Path(job["dir"]) / "video_taiat.mp4"
@@ -829,6 +883,65 @@ class Handler(BaseHTTPRequestHandler):
             except assistant.AssistantError as e:
                 return self._json({"error": str(e)}, 400)
             return self._json(res)
+        if len(parts) == 3 and parts[:2] in (["api", "publish-pack"], ["api", "hooks-propose"]):
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            try:
+                pr = core.load_project(job["dir"])
+                if parts[1] == "hooks-propose":
+                    return self._json(assistant.propose_hooks(pr, body.get("state") or {}))
+                res = assistant.publish_pack(pr, body.get("state") or {}, body.get("platforms"), str(body.get("note") or ""))
+                res["pack"] = assistant.save_pack(job["dir"], res, job["name"])
+                job["files"]["pack"] = "publicare.txt"
+                save_job_meta(job)
+                return self._json(res)
+            except assistant.AssistantError as e:
+                return self._json({"error": str(e)}, 400)
+            except Exception as e:
+                traceback.print_exc()
+                return self._json({"error": f"Ceva n-a mers: {str(e)[:200]}"}, 500)
+        if len(parts) == 3 and parts[:2] == ["api", "publish-save"]:
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            pack = assistant.save_pack(job["dir"], body.get("pack"), job["name"])
+            job["files"]["pack"] = "publicare.txt"
+            return self._json({"pack": pack})
+        if len(parts) == 3 and parts[:2] == ["api", "cover"]:
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            try:
+                f = core.make_cover(job["dir"], core.load_project(job["dir"]), body.get("t", 0),
+                                    str(body.get("title") or "")[:80], str(body.get("subtitle") or "")[:100])
+            except Exception as e:
+                traceback.print_exc()
+                return self._json({"error": str(e)[:300]}, 500)
+            job["files"]["cover"] = core.COVER_FILE
+            save_job_meta(job)
+            return self._json({"url": f"/media/{job['id']}/cover?v={int(f.stat().st_mtime * 1000)}"})
+        if len(parts) == 3 and parts[:2] == ["api", "hooks"]:
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            if job["status"] in ("running", "queued"):
+                return self._json({"error": "Video-ul e încă în lucru. Așteaptă să se termine."}, 409)
+            body = self._read_json() or {}
+            pr = core.load_project(job["dir"])
+            pr["hooks"] = core.clean_hooks(body.get("hooks"), float(pr.get("source_duration") or 1e6))
+            core.save_project(job["dir"], pr)
+            if body.get("render"):
+                if not pr["hooks"]:
+                    return self._json({"error": "Nu e nicio variantă de randat."}, 400)
+                job["status"], job["stage"] = "running", 3
+                job["stages"][2].update(status="active", progress=0, detail="La rând pentru variante…")
+                emit(job)
+                work_q.put(("variants", job["id"], None))
+            return self._json({"hooks": pr["hooks"]})
         if len(parts) == 3 and parts[:2] == ["api", "propose"]:
             job = jobs.get(parts[2])
             if not job or not job["dir"] or not (Path(job["dir"]) / core.PROJECT_FILE).exists():

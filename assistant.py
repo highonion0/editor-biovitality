@@ -19,6 +19,7 @@ CONFIG = core.APP_DIR / "asistent.json"
 API_URL = os.environ.get("BV_API_URL", "https://api.anthropic.com/v1/messages")
 MODELS = [
     ["claude-sonnet-5", "Claude Sonnet 5 · recomandat"],
+    ["claude-sonnet-5-5", "Claude Sonnet 5.5 · cel mai nou Sonnet, același preț"],
     ["claude-opus-5-5", "Claude Opus 5.5 · cel mai capabil, mai scump"],
     ["claude-haiku-4-5-20251001", "Claude Haiku 4.5 · cel mai rapid și ieftin"],
 ]
@@ -360,14 +361,9 @@ def propose(project, state, sfx_names):
         raise AssistantError("Nu ai setat încă cheia API. O adaugi din tabul Asistent.")
     lib = "\n".join(f"- {n}" for n in sfx_names[:300]) if sfx_names else "(biblioteca de sunete e goală — nu propune efecte sonore)"
     system = build_system(project, state) + PROPOSE_GUIDE + "\nBiblioteca de efecte sonore (categorie / nume):\n" + lib
-    body = {"model": model(), "max_tokens": 4000, "system": _check_context(system), "tools": [propose_tool()],
-            "tool_choice": {"type": "tool", "name": "propose_edits"},
-            "messages": [{"role": "user", "content": "Analizează video-ul și propune-mi cum l-ai edita."}]}
-    data = _post(body, key)
-    call = next((b for b in data.get("content", []) if b.get("type") == "tool_use" and b.get("name") == "propose_edits"), None)
-    if not call:
+    data, inp = _tool_call(system, "Analizează video-ul și propune-mi cum l-ai edita.", propose_tool(), 8000)
+    if inp is None:
         raise AssistantError("Claude n-a trimis propuneri. Mai încearcă o dată.")
-    inp = call.get("input") or {}
     cues, segs, _ = _out_cues(project, state)
     total = core.seg_total(segs)
     out = []
@@ -402,6 +398,30 @@ def propose(project, state, sfx_names):
         out.append(q)
     out.sort(key=lambda q: q["start"])
     return {"summary": str(inp.get("summary", ""))[:400], "proposals": out, "usage": data.get("usage", {})}
+
+
+# modelele noi (Opus 5.5, Sonnet 5.5) nu mai accepta unealta impusa („tool_choice: tool”) -> o cer prin instructiune
+NO_FORCED_TOOL = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1")
+
+def _tool_call(system, user_text, tool, max_tokens):
+    """O cerere in care Claude raspunde folosind o singura unealta. Intoarce (raspunsul, inputul uneltei sau None)."""
+    key = api_key()
+    if not key:
+        raise AssistantError("Nu ai setat încă cheia API. O adaugi din tabul Asistent.")
+    body = {"model": model(), "max_tokens": max_tokens, "system": _check_context(system), "tools": [tool],
+            "messages": [{"role": "user", "content": user_text}]}
+    if model() in NO_FORCED_TOOL:
+        body["tool_choice"] = {"type": "auto"}
+        body["messages"][0]["content"] = user_text + f"\n\nTrimite răspunsul folosind unealta {tool['name']}."
+    else:
+        body["tool_choice"] = {"type": "tool", "name": tool["name"]}
+    data = _post(body, key)
+    if data.get("stop_reason") == "refusal":
+        raise AssistantError("Claude a refuzat cererea. Încearcă din nou sau reformulează indicațiile.")
+    call = next((b for b in data.get("content", []) if b.get("type") == "tool_use" and b.get("name") == tool["name"]), None)
+    if call is None and data.get("stop_reason") == "max_tokens":
+        raise AssistantError("Răspunsul lui Claude a fost prea lung și s-a întrerupt. Mai încearcă o dată.")
+    return data, (call.get("input") or {}) if call else None
 
 
 def _post(body, key):
@@ -461,3 +481,193 @@ def broll_prompt(project, state, idea, start, end):
     if not text:
         raise AssistantError("Claude n-a trimis prompt-ul. Mai încearcă o dată.")
     return {"prompt": text[:3000], "spoken": spoken}
+
+
+# ------------------------------------------------------------ pachetul de publicare (punctul 4)
+PLATFORMS = {"tiktok": "TikTok", "instagram": "Instagram Reels", "youtube": "YouTube Shorts", "facebook": "Facebook Reels"}
+HASHTAG_MAX = {"tiktok": 5, "instagram": 12, "youtube": 5, "facebook": 3}
+LANG_FULL = {"ro": "română", "it": "italiană", "en": "engleză"}
+PACK_FILE = "publicare.json"
+
+def pack_tool(platforms):
+    return {
+        "name": "publish_pack",
+        "description": "Trimite pachetul de publicare: textul copertei și, pentru fiecare platformă, descrierea, hashtag-urile, "
+                       "textul de pe copertă și primul comentariu.",
+        "input_schema": {"type": "object", "properties": {
+            "cover": {"type": "object", "description": "Textul pentru imaginea de copertă (comun tuturor platformelor).", "properties": {
+                "title": {"type": "string", "description": "Titlul mare: 2–6 cuvinte, oprește scroll-ul."},
+                "subtitle": {"type": "string", "description": "Opțional: 3–8 cuvinte care completează titlul."}},
+                "required": ["title"]},
+            "platforms": {"type": "array", "items": {"type": "object", "properties": {
+                "platform": {"type": "string", "enum": platforms},
+                "title": {"type": "string", "description": "Doar pentru youtube: titlul Short-ului, max 90 de caractere."},
+                "description": {"type": "string", "description": "Textul postării, gata de lipit."},
+                "hashtags": {"type": "array", "items": {"type": "string"}, "description": "Fără #, fără spații în interior."},
+                "cover_text": {"type": "string", "description": "Textul scurt de pe coperta acestei platforme (2–6 cuvinte)."},
+                "first_comment": {"type": "string", "description": "Primul comentariu, pe care îl postează ea imediat după publicare."}},
+                "required": ["platform", "description", "hashtags", "cover_text", "first_comment"]}}},
+            "required": ["cover", "platforms"]}}
+
+PACK_GUIDE = """
+Sarcina ta acum: pregătește pachetul de publicare pentru acest video, pentru fiecare platformă cerută.
+Reguli generale:
+- Totul în limba {lang}, cu diacritice, pe tonul brandului: cald, educativ, de încredere. Fără clickbait înșelător.
+- Conținutul vine DOAR din ce spune ea în video (și din script). Nu adăuga afirmații de sănătate, cifre, studii sau beneficii noi.
+  Fără promisiuni de vindecare sau tratament: BioVitality vinde suplimente alimentare.
+- Fără linkuri și fără prețuri. Emoji cu măsură (0–3 pe text).
+- Hashtag-uri relevante pentru subiect și pentru publicul din România (dacă limba e română), amestec de generale și de nișă,
+  fără hashtag-uri interzise sau spam. Scrise fără #.
+Pe platforme:
+- tiktok: descriere scurtă (1–2 propoziții, max ~150 de caractere) care completează video-ul, eventual o întrebare. 3–5 hashtag-uri.
+- instagram: 3–6 rânduri scurte: prima frază e cârligul (se vede înainte de „mai mult”), apoi ideea principală, apoi o invitație
+  (salvează / trimite cuiva / comentează). 6–12 hashtag-uri.
+- youtube: „title” obligatoriu (max 90 de caractere, clar și căutabil) + descriere de 1–3 propoziții. 3–5 hashtag-uri, printre ele „shorts”.
+- facebook: ton de conversație, 2–4 propoziții, o întrebare la final. 1–3 hashtag-uri.
+- cover_text: 2–6 cuvinte, potrivite platformei (pe TikTok și Reels coperta se vede în grilă — să fie clar despre ce e video-ul).
+- first_comment: un comentariu util al ei care pornește discuția (o întrebare, un detaliu în plus din video sau o invitație la
+  următorul video), 1–2 propoziții, diferit de descriere.
+Trimite totul cu unealta publish_pack.
+"""
+
+def _clean_tags(tags, n):
+    out, seen = [], set()
+    for t in tags if isinstance(tags, list) else str(tags or "").split():
+        t = "".join(str(t).replace("#", " ").split())[:60]
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out[:n]
+
+def publish_pack(project, state, platforms, note=""):
+    platforms = [p for p in PLATFORMS if p in (platforms or [])] or list(PLATFORMS)
+    lang = LANG_FULL.get((project.get("settings") or {}).get("language"), "română")
+    system = build_system(project, state) + PACK_GUIDE.replace("{lang}", lang)
+    ask_txt = "Pregătește pachetul de publicare pentru: " + ", ".join(PLATFORMS[p] for p in platforms) + "."
+    if note.strip():
+        ask_txt += f"\nIndicațiile mele pentru acest video: {note.strip()[:1000]}"
+    data, inp = _tool_call(system, ask_txt, pack_tool(platforms), 8000)
+    if inp is None:
+        raise AssistantError("Claude n-a trimis pachetul. Mai încearcă o dată.")
+    raw = inp.get("platforms") or []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = []
+    by = {}
+    for p in raw if isinstance(raw, list) else []:
+        if isinstance(p, dict) and p.get("platform") in platforms and p["platform"] not in by:
+            by[p["platform"]] = {
+                "platform": p["platform"], "name": PLATFORMS[p["platform"]],
+                "title": str(p.get("title") or "")[:100] if p["platform"] == "youtube" else "",
+                "description": str(p.get("description") or "").strip()[:2200],
+                "hashtags": _clean_tags(p.get("hashtags"), HASHTAG_MAX[p["platform"]]),
+                "cover_text": " ".join(str(p.get("cover_text") or "").split())[:80],
+                "first_comment": str(p.get("first_comment") or "").strip()[:600]}
+    if not by:
+        raise AssistantError("Claude n-a completat nicio platformă. Mai încearcă o dată.")
+    cover = inp.get("cover") if isinstance(inp.get("cover"), dict) else {}
+    return {"cover": {"title": " ".join(str(cover.get("title") or "").split())[:80],
+                      "subtitle": " ".join(str(cover.get("subtitle") or "").split())[:100]},
+            "platforms": [by[p] for p in platforms if p in by], "note": note.strip()[:1000], "usage": data.get("usage", {})}
+
+def clean_pack(raw):
+    """Pachetul trimis inapoi de interfata (dupa ce l-a editat ea), curatat inainte de salvare."""
+    raw = raw if isinstance(raw, dict) else {}
+    cover = raw.get("cover") if isinstance(raw.get("cover"), dict) else {}
+    out = {"cover": {"title": str(cover.get("title") or "")[:80], "subtitle": str(cover.get("subtitle") or "")[:100]},
+           "platforms": [], "note": str(raw.get("note") or "")[:1000]}
+    for p in raw.get("platforms") or []:
+        if isinstance(p, dict) and p.get("platform") in PLATFORMS:
+            out["platforms"].append({"platform": p["platform"], "name": PLATFORMS[p["platform"]],
+                                     "title": str(p.get("title") or "")[:100], "description": str(p.get("description") or "")[:2200],
+                                     "hashtags": _clean_tags(p.get("hashtags"), 30), "cover_text": str(p.get("cover_text") or "")[:80],
+                                     "first_comment": str(p.get("first_comment") or "")[:600]})
+    return out
+
+def pack_text(pack, video_name):
+    """Varianta de citit (publicare.txt), ca s-o poti deschide si din folderul cu rezultate."""
+    lines = [f"PACHET DE PUBLICARE · {video_name}", ""]
+    c = pack.get("cover") or {}
+    if c.get("title"):
+        lines += [f"Coperta: {c['title']}" + (f" / {c['subtitle']}" if c.get("subtitle") else ""), ""]
+    for p in pack.get("platforms") or []:
+        lines += [f"=== {p['name']} ==="]
+        if p.get("title"):
+            lines += [f"Titlu: {p['title']}"]
+        lines += [f"Text pe copertă: {p['cover_text']}", "", "Descriere:", p["description"]]
+        if p.get("hashtags"):
+            lines += ["", " ".join("#" + t for t in p["hashtags"])]
+        lines += ["", "Primul comentariu:", p["first_comment"], "", ""]
+    return "\n".join(lines)
+
+def save_pack(job_dir, pack, video_name):
+    job_dir = Path(job_dir)
+    pack = clean_pack(pack)
+    (job_dir / PACK_FILE).write_text(json.dumps(pack, ensure_ascii=False, indent=1), encoding="utf-8")
+    (job_dir / "publicare.txt").write_text(pack_text(pack, video_name), encoding="utf-8")
+    return pack
+
+def load_pack(job_dir):
+    try:
+        return clean_pack(json.loads((Path(job_dir) / PACK_FILE).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return None
+
+
+# ------------------------------------------------------------ variante de carlig (punctul 6)
+def hooks_tool():
+    return {
+        "name": "propose_hooks",
+        "description": "Trimite 3 variante de început (cârlig) pentru același video, ca să fie testate una contra alteia.",
+        "input_schema": {"type": "object", "properties": {
+            "hooks": {"type": "array", "items": {"type": "object", "properties": {
+                **LINE_FIELDS,
+                "text": {"type": "string", "description": "Titlul mare de pe ecran în primele secunde: 3–7 cuvinte."},
+                "accent": {"type": "string", "description": "Un singur cuvânt din text, scris colorat (cuvântul-cheie)."},
+                "reason": {"type": "string", "description": "O propoziție: ce unghi testează varianta asta."}},
+                "required": ["text", "reason"]}}},
+            "required": ["hooks"]}}
+
+HOOKS_GUIDE = """
+Sarcina ta acum: propune 3 variante de cârlig (începutul video-ului) ca să le testeze una contra alteia (A/B).
+Fiecare variantă are:
+- o frază din video pusă la început, înaintea video-ului întreg (from_line / to_line, de obicei o singură frază, max ~6 secunde):
+  cea mai surprinzătoare afirmație, o cifră, o întrebare sau o problemă pe care o simte publicul. Alege-o din mijlocul sau
+  finalul video-ului — nu prima frază, care oricum e deja la început. Fraza trebuie să se înțeleagă singură, fără context.
+  Poți lăsa o variantă fără frază (fără from_line), doar cu alt titlu peste începutul original.
+- un titlu mare pe ecran (text, 3–7 cuvinte) + cuvântul colorat (accent, un cuvânt din text).
+Cele 3 variante trebuie să testeze unghiuri diferite (de ex.: curiozitate, cifră/fapt surprinzător, problemă/durere, beneficiu),
+cu fraze diferite. Doar ce spune ea în video — fără afirmații noi de sănătate. În limba video-ului, cu diacritice.
+Trimite variantele cu unealta propose_hooks.
+"""
+
+def propose_hooks(project, state):
+    system = build_system(project, state) + HOOKS_GUIDE
+    data, inp = _tool_call(system, "Propune-mi 3 variante de cârlig pentru video-ul acesta.", hooks_tool(), 6000)
+    if inp is None:
+        raise AssistantError("Claude n-a trimis variantele. Mai încearcă o dată.")
+    cues, segs, _ = _out_cues(project, state)
+    raw = inp.get("hooks") or []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = []
+    out = []
+    for h in raw if isinstance(raw, list) else []:
+        if not isinstance(h, dict):
+            continue
+        item = {"text": h.get("text"), "accent": h.get("accent"), "reason": h.get("reason"), "clip": []}
+        if h.get("from_line") is not None and cues:
+            anchor(h, cues, core.seg_total(segs), "cut")
+        if "start" in h and "end" in h:
+            item["clip"] = core.out_range_to_src(h["start"], h["end"], segs)
+            item["spoken"] = " ".join(w["t"] for c in cues if c["end"] > h["start"] + 0.05 and c["start"] < h["end"] - 0.05
+                                      for w in c["words"])
+        out.append(item)
+    hooks = core.clean_hooks(out, float(project.get("source_duration") or 1e6))
+    if not hooks:
+        raise AssistantError("Claude n-a trimis variante folosibile. Mai încearcă o dată.")
+    return {"hooks": hooks, "usage": data.get("usage", {})}

@@ -417,6 +417,7 @@ function handle(ev) {
     if (old) Object.assign(old, ev.job);
     else { S.jobs.set(ev.job.id, { ...ev.job, segments: [], log: [] }); S.order.push(ev.job.id); if (!S.selected) S.selected = ev.job.id; }
     renderSidebar(); renderMain();
+    if (T.on && ev.job.id === T.id && typeof pubOnJob === 'function') pubOnJob();
   } else if (ev.type === 'segment') {
     const j = S.jobs.get(ev.id); if (!j) return;
     j.segments.push(ev.seg);
@@ -1316,5 +1317,6 @@ connect();
 <script src="/static/look.js"></script>
 <script src="/static/safezones.js"></script>
 <script src="/static/motion.js"></script>
+<script src="/static/publish.js"></script>
 </body>
 </html>

@@ -802,6 +802,17 @@ def captions_to_out(cap, segs):
     out.sort(key=lambda c: c["start"])
     return {"version": 1, "style": cap["style"], "cues": out}
 
+def out_range_to_src(oa, ob, segs):
+    """Un interval de pe timeline-ul final -> bucatile din sursa care il formeaza (in ordinea de pe timeline)."""
+    out, acc = [], 0.0
+    for a, b in segs:
+        d = b - a
+        x, y = max(oa, acc), min(ob, acc + d)
+        if y - x > 0.02:
+            out.append([round(a + x - acc, 3), round(a + y - acc, 3)])
+        acc += d
+    return out
+
 def captions_from_out(cap_out, segs):
     cap = clean_captions(cap_out)
     for c in cap["cues"]:
@@ -1408,7 +1419,8 @@ def remotion_status():
                 "hint": "Remotion nu e instalat încă. Rulează „instaleaza_remotion.bat”."}
     return {"ok": True, "label": "Motor Remotion"}
 
-def remotion_props(job_dir, project, source_url, with_captions=True, asset_url=None):
+def remotion_props(job_dir, project, source_url, with_captions=True, asset_url=None, cap_out=None):
+    """cap_out = subtitrarile deja pe timpul final (pentru variantele de carlig, unde o bucata apare de doua ori)."""
     segs = project["segments"]
     overlays = []
     for o in sorted(project.get("overlays", []), key=lambda o: o.get("lane", 0)):
@@ -1422,7 +1434,7 @@ def remotion_props(job_dir, project, source_url, with_captions=True, asset_url=N
         "width": project["width"], "height": project["height"], "fps": project["fps"],
         "source": source_url,
         "segments": [{"from": a, "to": b} for a, b in segs],
-        "captions": captions_to_out(project["captions"], segs) if with_captions and project.get("captions") else None,
+        "captions": (cap_out or captions_to_out(project["captions"], segs)) if with_captions and project.get("captions") else None,
         "fonts": [{"id": f["id"], "ratio": f["ratio"], "files": f["files"]} for f in FONTS],
         "overlays": overlays,
         "grade": None if color_neutral(clean_look(project.get("look"))["color"]) else sum(color_matrix(clean_look(project.get("look"))["color"]), []),
@@ -1434,10 +1446,11 @@ def remotion_props(job_dir, project, source_url, with_captions=True, asset_url=N
                   if asset_url and (Path(job_dir) / ASSETS / a["asset"]).is_file()],
     }
 
-def render_remotion(job_dir, project, dst, source_url, report, asset_url=None, captions=True):
+def render_remotion(job_dir, project, dst, source_url, report, asset_url=None, captions=True, cap_out=None):
     job_dir = Path(job_dir)
     props = job_dir / "_props.json"
-    props.write_text(json.dumps(remotion_props(job_dir, project, source_url, with_captions=captions, asset_url=asset_url),
+    props.write_text(json.dumps(remotion_props(job_dir, project, source_url, with_captions=captions, asset_url=asset_url,
+                                               cap_out=cap_out),
                                 ensure_ascii=False), encoding="utf-8")
     report({"type": "stage_detail", "n": 3, "detail": "Randez cu Remotion"})
     report({"type": "progress", "value": None})
@@ -1476,25 +1489,34 @@ def _round_mask(path, w, h, radius_pct):
                     "-i", f"color=c=black:s={w}x{h}", "-vf", f"format=gray,geq=lum='{expr}'", "-frames:v", "1", str(path)],
                    capture_output=True, creationflags=NO_WINDOW, check=True)
 
-def burn_classic(job_dir, project, dst, report, captions=True):
-    """Motorul clasic: copia taiata + suprapuneri + piste audio (ffmpeg) + subtitrari (libass)."""
+def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out=None):
+    """Motorul clasic: copia taiata + suprapuneri + piste audio (ffmpeg) + subtitrari (libass).
+    cut / cap_out: alta copie taiata si subtitrarile ei (pentru variantele de carlig)."""
     job_dir = Path(job_dir)
-    cut = job_dir / "video_taiat.mp4"
+    cut = Path(cut) if cut else job_dir / "video_taiat.mp4"
     W, H = probe_size(cut)
     total = probe_duration(cut) or seg_total(project["segments"]) or 1.0
-    cap = captions_to_out(project["captions"], project["segments"]) if project.get("captions") and captions else {"cues": []}
+    if not (project.get("captions") and captions):
+        cap = {"cues": []}
+    else:
+        cap = cap_out or captions_to_out(project["captions"], project["segments"])
     ass = job_dir / "subs.ass"
     has_caps = bool(cap["cues"])
     if has_caps:
         write_ass_captions(cap, ass, W, H)
-    n_gfx = sum(1 for o in project.get("overlays", []) if o.get("type") == "graphic")
+    cards, card_temps = [], []
+    for k, c in enumerate(project.get("title_cards") or []):     # textul mare al unei variante de carlig
+        f, tmp = _card_filter(c.get("title", ""), c.get("subtitle", ""), W, H, c.get("y", 0.3), job_dir, f"c{k}",
+                              (c["start"], c["end"]))
+        cards.append(f); card_temps += tmp
+    n_gfx = sum(1 for o in project.get("overlays", []) if o.get("type") == "graphic" and not o.get("_card"))
     if n_gfx:
         report({"type": "log", "msg": f"Atenție: {n_gfx} grafice animate nu apar în video — ele au nevoie de motorul Remotion "
                                       "(rulează „instaleaza_remotion.bat”)."})
     ovs = [o for o in sorted(project.get("overlays", []), key=lambda o: o.get("lane", 0))
            if o.get("type") in ("image", "video") and (job_dir / ASSETS / o["asset"]).is_file()]
     auds = [a for a in project.get("audio", []) if (job_dir / ASSETS / a["asset"]).is_file()]
-    temps = []
+    temps = list(card_temps)
     report({"type": "stage_detail", "n": 3, "detail": "Motor clasic"})
     try:
         col = clean_look(project.get("look"))["color"]
@@ -1504,7 +1526,7 @@ def burn_classic(job_dir, project, dst, report, captions=True):
         if n_move:
             report({"type": "log", "msg": f"Atenție: zoom-ul, tranzițiile și animațiile ({n_move}) merg doar cu motorul Remotion — "
                                           "le-am sărit. Instalează-l cu instaleaza_remotion.bat."})
-        if not ovs and not auds and not grade:
+        if not ovs and not auds and not grade and not cards:
             if not has_caps:
                 shutil.copyfile(cut, dst); return
             burn(cut, ass, dst, report); return
@@ -1563,11 +1585,12 @@ def burn_classic(job_dir, project, dst, report, captions=True):
             parts.append(chain + f",adelay={int(a['start'] * 1000)}:all=1[a{k}]")
             audio.append(f"[a{k}]")
         last = f"[b{len(ovs)}]"
+        extra = "".join("," + c for c in cards)
         if has_caps:
             fonts = os.path.relpath(FONT_DIR, job_dir).replace("\\", "/")
-            parts.append(f"{last}subtitles={ass.name}:fontsdir={fonts}[vout]")
+            parts.append(f"{last}subtitles={ass.name}:fontsdir={fonts}{extra}[vout]")
         else:
-            parts.append(f"{last}null[vout]")
+            parts.append(f"{last}null{extra}[vout]")
         maps = ["-map", "[vout]"]
         if audio:
             base = "[0:a]" if cut_audio else ""
@@ -1620,6 +1643,198 @@ def render_final(job_dir, project, report, source_url, asset_url=None, captions=
             except OSError: pass
     report({"type": "stage_detail", "n": 3, "detail": "Remotion · gata" if done else "Motor clasic · gata"})
     return name
+
+
+# ------------------------------------------------------------ textul mare in stilul brandului (motorul clasic si coperta)
+def _wrap(text, n):
+    lines, cur = [], ""
+    for w in str(text).split():
+        if cur and len(cur) + 1 + len(w) > n:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    if cur:
+        lines.append(cur)
+    return lines
+
+def _card_filter(title, subtitle, W, H, yc, cwd, tag, enable=None):
+    """Card verde inchis cu titlu crem (Anton) si subtitlu auriu (Montserrat), facut cu drawtext.
+    Fisierele de text si fonturile sunt date relativ la cwd (fara „C:” in filtru). Intoarce (filtre, fisiere temporare)."""
+    cwd = Path(cwd)
+    rel = lambda p: os.path.relpath(p, cwd).replace("\\", "/")
+    ts, ss = max(12, int(W * 0.085)), max(10, int(W * 0.045))
+    tl = _wrap(str(title or "").upper(), 16)[:4]
+    sl = _wrap(str(subtitle or ""), 30)[:3]
+    if not tl and not sl:
+        return "null", []
+    lh_t, lh_s, pad = int(ts * 1.15), int(ss * 1.35), int(W * 0.045)
+    gap = int(ss * 0.5) if tl and sl else 0
+    h = len(tl) * lh_t + len(sl) * lh_s + gap + 2 * pad
+    y0 = int(max(0, min(H - h, H * yc - h / 2)))
+    en = f":enable='between(t,{enable[0]:.3f},{enable[1]:.3f})'" if enable else ""
+    x0, bw = int(W * 0.06), int(W * 0.88)
+    f = [f"drawbox=x={x0}:y={y0}:w={bw}:h={h}:color=0x13211A@0.88:t=fill{en}",
+         f"drawbox=x={x0}:y={y0}:w={max(4, int(W * 0.012))}:h={h}:color=0xE8A83B@1:t=fill{en}"]
+    temps, y = [], y0 + pad
+    rows = [(l, "Anton-Regular.ttf", ts, "0xF3EDDD", lh_t) for l in tl] + \
+           [(l, "Montserrat-Bold.ttf", ss, "0xE8A83B", lh_s) for l in sl]
+    for i, (line, font, size, col, lh) in enumerate(rows):
+        if tl and i == len(tl):
+            y += gap
+        tf = cwd / f"_text_{tag}_{i}.txt"
+        tf.write_text(line, encoding="utf-8")
+        temps.append(tf)
+        f.append(f"drawtext=fontfile='{rel(FONT_DIR / font)}':textfile='{rel(tf)}':expansion=none:fontsize={size}:"
+                 f"fontcolor={col}:x=(w-text_w)/2:y={y + (lh - size) // 2}{en}")
+        y += lh
+    return ",".join(f), temps
+
+
+# ------------------------------------------------------------ variante de carlig (A/B): alt inceput pentru acelasi video
+HOOK_LABELS = "ABCDE"
+HOOK_MAX = 10.0          # secunde de fraza puse la inceput
+
+def clean_hooks(raw, duration):
+    out = []
+    for h in (raw if isinstance(raw, list) else [])[:len(HOOK_LABELS)]:
+        if not isinstance(h, dict):
+            continue
+        clip, tot = [], 0.0
+        for x in (h.get("clip") or [])[:20]:
+            try:
+                a, b = max(0.0, float(x[0])), min(float(duration), float(x[1]))
+            except (TypeError, ValueError, IndexError):
+                continue
+            if b - a >= 0.04 and tot < HOOK_MAX:
+                b = min(b, a + HOOK_MAX - tot)
+                clip.append([round(a, 3), round(b, 3)])
+                tot += b - a
+        text = " ".join(str(h.get("text") or "").split())[:120]
+        if not clip and not text:
+            continue
+        out.append({"label": HOOK_LABELS[len(out)], "clip": clip, "text": text,
+                    "accent": " ".join(str(h.get("accent") or "").split())[:40],
+                    "reason": str(h.get("reason") or "")[:240], "spoken": str(h.get("spoken") or "")[:300]})
+    return out
+
+def _shift_cues(cues, d):
+    out = []
+    for c in cues:
+        words = [dict(w, s=round(w["s"] + d, 3), e=round(w["e"] + d, 3)) if "s" in w and "e" in w else dict(w) for w in c["words"]]
+        out.append({**c, "start": round(c["start"] + d, 3), "end": round(c["end"] + d, 3), "words": words})
+    return out
+
+def _hook_cues(cap, clip):
+    """Subtitrarile frazei puse la inceput: doar cuvintele rostite chiar in bucata aleasa."""
+    out, acc = [], 0.0
+    pieces = []
+    for a, b in clip:
+        pieces.append((a, b, acc))
+        acc += b - a
+    def where(t):
+        for a, b, o in pieces:
+            if a - 1e-3 <= t <= b + 1e-3:
+                return o + min(max(t, a), b) - a
+        return None
+    for c in cap.get("cues") or []:
+        words = []
+        for w in c["words"]:
+            if "s" not in w or "e" not in w:
+                continue
+            m = where((w["s"] + w["e"]) / 2)
+            if m is None:
+                continue
+            s, e = where(w["s"]), where(w["e"])
+            s = m if s is None else s
+            e = m if e is None else e
+            words.append(dict(w, s=round(s, 3), e=round(max(e, s), 3)))
+        if words and words[-1]["e"] - words[0]["s"] >= 0.05:
+            out.append({**c, "start": words[0]["s"], "end": words[-1]["e"], "words": words})
+    return out
+
+def variant_project(project, v):
+    """Proiectul unei variante: fraza-carlig (daca exista) pusa la inceput, apoi tot video-ul;
+    totul de pe timeline se muta cu durata ei. Intoarce (proiect, subtitrari pe timpul final)."""
+    segs = [list(x) for x in project["segments"]]
+    clip = [list(x) for x in v.get("clip") or []]
+    L = seg_total(clip)
+    sh = lambda it: {**it, "start": round(it["start"] + L, 3), "end": round(it["end"] + L, 3)}
+    vp = {**project, "segments": clip + segs}
+    ovs = [sh(o) for o in project.get("overlays", [])]
+    vp["audio"] = [sh(a) for a in project.get("audio", [])]
+    vp["zooms"] = [sh(z) for z in project.get("zooms") or []]
+    vp["transitions"] = {str(int(k) + (1 if clip else 0)): t for k, t in clean_trans(project.get("transitions")).items()}
+    if v.get("text"):
+        end = round(min(max(L, 2.5), 4.0), 3)
+        # textul variantei inlocuieste titlul de la inceputul video-ului (ca sa nu apara doua titluri unul peste altul)
+        ovs = [o for o in ovs if not (o.get("type") == "graphic" and o["start"] < L + 1.0 and o.get("y", 0.5) < 0.5)]
+        t = TEMPLATE_BY_ID["hook"]
+        ovs.append({"id": "carlig", "type": "graphic", "template": "hook", "start": 0.0, "end": end,
+                    "x": t["x"], "y": t["y"], "w": t["w"], "lane": 50, "_card": True,
+                    "props": clean_graphic_props("hook", {"text": v["text"], "accent": v.get("accent") or ""})})
+        vp["title_cards"] = [{"title": v["text"], "subtitle": "", "start": 0.0, "end": end, "y": t["y"]}]
+    vp["overlays"] = ovs
+    cap = project.get("captions") or {}
+    cap_out = None
+    if cap.get("cues"):
+        body = _shift_cues(captions_to_out(cap, segs)["cues"], L)
+        cap_out = {"version": 1, "style": cap["style"], "cues": (_hook_cues(cap, clip) if clip else []) + body}
+    return vp, cap_out
+
+def render_variant(job_dir, project, v, report, source_url, asset_url=None, captions=True):
+    """Randeaza o varianta de carlig in varianta_<litera>.mp4 (alt nume decat video_final, ca sa nu-l inlocuiasca)."""
+    job_dir = Path(job_dir)
+    vp, cap_out = variant_project(project, v)
+    name = f"varianta_{v['label']}.mp4"
+    dst = job_dir / name
+    done = False
+    if remotion_status()["ok"] and source_url:
+        try:
+            render_remotion(job_dir, vp, dst, source_url, report, asset_url, captions, cap_out=cap_out)
+            done = True
+        except Exception as e:
+            report({"type": "log", "msg": f"{str(e).splitlines()[0][:260]} — folosesc motorul clasic."})
+            dst.unlink(missing_ok=True)
+    if not done:
+        cut = job_dir / "_taiat_varianta.mp4"
+        try:
+            render_proxy(project_source(job_dir, vp), vp["segments"], cut, report, n=3, scale=(0, 40),
+                         audio_src=processed_audio(job_dir, vp))
+            burn_classic(job_dir, vp, dst, report, captions, cut=cut, cap_out=cap_out)
+        finally:
+            cut.unlink(missing_ok=True)
+    return name
+
+
+# ------------------------------------------------------------ coperta (pachetul de publicare)
+COVER_FILE = "coperta.jpg"
+
+def make_cover(job_dir, project, t_out, title, subtitle=""):
+    """Un cadru din video (la momentul ales, cu look-ul proiectului) + textul copertei in stilul brandului."""
+    job_dir = Path(job_dir)
+    src = project_source(job_dir, project)
+    t_src = out_to_src(max(0.0, float(t_out or 0)), project["segments"])
+    W = 1080
+    H = max(2, int(round(W * project["height"] / project["width"] / 2)) * 2)
+    col = clean_look(project.get("look"))["color"]
+    chain = [f"scale={W}:{H}:force_original_aspect_ratio=increase", f"crop={W}:{H}"]
+    if not color_neutral(col):
+        chain.append(ffmpeg_color(col))
+    card, temps = _card_filter(title, subtitle, W, H, 0.40, job_dir, "cop")
+    chain.append(card)
+    tmp = job_dir / "_coperta.tmp.jpg"
+    try:
+        r = subprocess.run([find_tool("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{t_src:.3f}", "-i", str(src.resolve()),
+                            "-frames:v", "1", "-vf", ",".join(chain), "-q:v", "2", tmp.name],
+                           cwd=str(job_dir), capture_output=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    finally:
+        for f in temps:
+            f.unlink(missing_ok=True)
+    if r.returncode != 0 or not tmp.exists():
+        raise RuntimeError("Nu am putut face coperta. " + (r.stderr or "")[-300:])
+    tmp.replace(job_dir / COVER_FILE)
+    return job_dir / COVER_FILE
 
 
 # ------------------------------------------------------------ dupa script

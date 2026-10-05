@@ -20,21 +20,18 @@ Preluat din chatul vechi în care a fost dezvoltată aplicația (2 octombrie 202
    - Cost estimat: ~1–3 $ per video.
 
 ## Din brainstorming
-4. **Pachet de publicare**
-   - Pentru fiecare video și fiecare platformă: descriere, hashtag-uri, text de copertă și primul comentariu.
-   - Plus o copertă în stilul brandului.
 5. **Șabloane de serie + procesare în lot** — *cel mai valoros punct (ritm de ~30 video/zi)*
    - Se salvează un format recurent: look, stil de subtitrări, intro, final, grafice tipice.
    - Formatul se aplică pe toate video-urile pregătite, iar propunerile se generează automat.
    - Utilizatorul doar aprobă, apoi randarea merge în coadă, inclusiv peste noapte.
-6. **Variante de cârlig (A/B)**
-   - 2–3 începuturi diferite pentru același video, randate ca versiuni separate.
 7. **Biblioteca de B-roll**
    - Clipuri proprii etichetate (produse, ingrediente, ambalaje).
    - Claude le propune înainte de generarea în DaVinci.
 
 ## Făcute
 - **Reordonarea bucăților** din video-ul principal (tragere pe timeline, butoane ◀ ▶, Alt+←/→).
+- **4. Pachet de publicare** (tabul 📣 Publicare): descriere, hashtag-uri, text de copertă și primul comentariu pe platformă + coperta.
+- **6. Variante de cârlig (A/B)** (tabul 📣 Publicare): `varianta_A.mp4`, `varianta_B.mp4`…
 
 ## Excluse explicit (se ocupă utilizatorul)
 - Verificarea afirmațiilor de sănătate.
