@@ -349,3 +349,6 @@
 .gcol input{width:34px;height:26px;padding:0;border:1px solid var(--line2);border-radius:6px;background:none;cursor:pointer}
 .pkl{gap:6px}
 .pkc{display:inline-flex;gap:2px}
+/* decupat: clipul transparent cu tine, peste fundal */
+.tstage .tcutv{position:absolute;display:none;z-index:1;object-fit:cover;pointer-events:none;background:transparent}
+.cutbox{display:flex;flex-direction:column;gap:6px}

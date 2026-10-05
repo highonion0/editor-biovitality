@@ -1,0 +1,3 @@
+onnxruntime-gpu
+nvidia-cufft-cu12
+nvidia-curand-cu12

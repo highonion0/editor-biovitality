@@ -660,7 +660,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             pr = core.load_project(job["dir"])
             adir = Path(job["dir"]) / core.ASSETS
-            assets = [core.asset_info(f) for f in sorted(adir.iterdir())] if adir.is_dir() else []
+            assets = [core.asset_info(f) for f in sorted(adir.iterdir()) if not f.name.startswith("_decupat_")] if adir.is_dir() else []
             pr["look"] = core.clean_look(pr.get("look"))
             draft = None
             df = Path(job["dir"]) / DRAFT_FILE
@@ -675,6 +675,9 @@ class Handler(BaseHTTPRequestHandler):
                         "look_presets": core.COLOR_PRESETS, "look_default": core.load_default_look(),
                         "source": f"/media/{job['id']}/source", "asset_base": f"/asset/{job['id']}",
                         "assets": assets, "busy": job["status"] in ("running", "queued")})
+        elif path == "/api/cutout-status":
+            import cutout
+            self._json(cutout.status())
         elif len(parts) == 3 and parts[:2] == ["api", "publish"]:
             job = self._job_with_project(parts[2])
             if not job:
@@ -997,6 +1000,30 @@ class Handler(BaseHTTPRequestHandler):
             pack = assistant.save_pack(job["dir"], body.get("pack"), job["name"])
             job["files"]["pack"] = "publicare.txt"
             return self._json({"pack": pack})
+        if len(parts) == 3 and parts[:2] == ["api", "cutout"]:
+            # clipul cu tine decupat pentru o portiune (make = il face acum; altfel spune doar daca e gata)
+            import cutout
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            pr = core.load_project(job["dir"])
+            try:
+                a, b = float(body.get("start", 0)), float(body.get("end", 0))
+                segs = core.clean_segments(body.get("segments"), float(pr.get("source_duration") or 1e6)) or pr["segments"]
+            except (TypeError, ValueError):
+                return self._json({"error": "Date invalide."}, 400)
+            f, _ = cutout.clip_for(job["dir"], pr, a, b, segs)
+            if body.get("make") and not f.exists():
+                st = cutout.status()
+                if not st["ok"]:
+                    return self._json({"error": st["hint"]}, 400)
+                try:
+                    f = cutout.make_clip(job["dir"], pr, a, b, segs)
+                except Exception as e:
+                    traceback.print_exc()
+                    return self._json({"error": f"Decuparea n-a mers: {str(e)[:200]}"}, 500)
+            return self._json({"ready": f.exists(), "url": f"/asset/{job['id']}/{urllib.parse.quote(f.name)}" if f.exists() else None})
         if len(parts) == 3 and parts[:2] == ["api", "caption-text"]:
             job = self._job_with_project(parts[2])
             if not job:

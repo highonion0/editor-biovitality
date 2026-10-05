@@ -62,10 +62,10 @@ export const zoomAt = (zooms: Zoom[] | undefined, t: number) => {
 
 // fereastra in care apari tu cand o poza / un clip e fundal (aceleasi formule ca core.pip_rect si timeline.js)
 export const pipRect = (pip: Pip, W: number, H: number) => {
-  const ar = pip.shape === 'circle' ? 1 : pip.shape === 'tall' ? H / W : 1.25;
+  const ar = pip.shape === 'circle' ? 1 : pip.shape === 'tall' || pip.shape === 'cut' ? H / W : 1.25;
   const h = Math.min(H, pip.w * W * ar), w = h / ar;
   const x = Math.min(Math.max(0, pip.x * W - w / 2), W - w), y = Math.min(Math.max(0, pip.y * H - h / 2), H - h);
-  return {x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : Math.min(w, h) * 0.06};
+  return {x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : pip.shape === 'cut' ? 0 : Math.min(w, h) * 0.06};
 };
 // poza-fundal: intreaga (contain) sau umple ecranul (cover), cu marimea si pozitia ei (ca core.bg_rect)
 export const bgRect = (b: BgImg, ar: number, W: number, H: number) => {
@@ -211,12 +211,31 @@ const MainTrack: React.FC<{p: Project; frame?: Frame}> = ({p, frame: win}) => {
 
 const MainWindow: React.FC<{p: Project}> = ({p}) => {
   const {width, height, fps} = useVideoConfig();
-  const r = mainRect(p.overlays, useCurrentFrame() / fps, width, height);
+  const t = useCurrentFrame() / fps;
+  const r = mainRect(p.overlays, t, width, height);
   if (!r) return <MainTrack p={p} />;
+  const o = p.overlays.find((x) => x.fit === 'bg' && t >= x.start && t < x.end);
+  // decupat: video-ul intreg ramane doar pentru sunet; imaginea vine din clipul transparent (CutWindow)
+  if (o?.pip?.shape === 'cut' && o.cut_src) return <AbsoluteFill style={{opacity: 0}}><MainTrack p={p} /></AbsoluteFill>;
   return (
     <div style={{position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: r.r, overflow: 'hidden',
       boxShadow: '0 12px 40px rgba(0,0,0,.45)'}}>
       <MainTrack p={p} frame={{fx: r.fx, fy: r.fy, zoom: r.zoom}} />
+    </div>
+  );
+};
+
+// tu, decupat din fundal: clipul transparent, in dreptunghiul ferestrei (cu keyframes si incadrare)
+const CutWindow: React.FC<{p: Project; o: Overlay}> = ({p, o}) => {
+  const {width, height, fps} = useVideoConfig();
+  const r = mainRect(p.overlays, o.start + useCurrentFrame() / fps, width, height);
+  if (!r || !o.cut_src) return null;
+  const pos = `${r.fx * 100}% ${r.fy * 100}%`;
+  return (
+    <div style={{position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, overflow: 'hidden',
+      filter: p.grade ? 'url(#bvgrade)' : undefined}}>
+      <OffthreadVideo src={o.cut_src} transparent muted
+        style={{width: '100%', height: '100%', objectFit: 'cover', objectPosition: pos, transform: `scale(${r.zoom})`, transformOrigin: pos}} />
     </div>
   );
 };
@@ -241,6 +260,11 @@ export const Main: React.FC<Project> = (p) => {
       })}
       {/* pista principala: bucatile pastrate din video-ul sursa, cu zoom si tranzitii (intr-o fereastra peste un fundal) */}
       <MainWindow p={p} />
+      {p.overlays.map((o, i) => {
+        if (o.fit !== 'bg' || o.pip?.shape !== 'cut' || !o.cut_src) return null;
+        const from = Math.round(o.start * fps), dur = Math.max(1, Math.round(o.end * fps) - from);
+        return <Sequence key={`c${i}`} from={from} durationInFrames={dur}><CutWindow p={p} o={o} /></Sequence>;
+      })}
       {/* poze si video-uri suprapuse */}
       {p.overlays.map((o, i) => {
         if (o.fit === 'bg') return null;

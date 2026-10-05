@@ -3,7 +3,7 @@
 Preluat din chatul vechi în care a fost dezvoltată aplicația (2 octombrie 2026).
 
 ## Din lista inițială
-1. **Scoaterea fundalului** — *următorul pas pentru „🧍 Tu peste el” decupat (ca efectul green screen de pe TikTok)*
+1. **Scoaterea fundalului** — *făcută pentru video-ul cu tine („✂ Decupat”); rămâne decuparea pe poze (logo, produse)*
    - Pe poze (logo, produse), unde merge rapid.
    - Pe video-ul cu persoana filmată, ca să fie pusă peste alt fundal: culoare, poză, alt video sau fundalul original estompat.
    - Rulează local pe RTX 4070, fără costuri pe cerere.
@@ -31,6 +31,7 @@ Preluat din chatul vechi în care a fost dezvoltată aplicația (2 octombrie 202
 - **7. Biblioteca de poze și clipuri** (tabul 📚 Bibliotecă); Claude le propune în 💡 Propuneri.
 - **Materiale obligatorii** urcate odată cu video-ul, puse automat pe timeline.
 - **🧍 Tu peste el**: poză / clip ca fundal, tu într-o fereastră (dreptunghi / cerc / vertical). Varianta decupată = punctul 1.
+- **✂ Decupat** (tu fără fundal peste poză), keyframes și încadrare pe fereastra ta; scriptul în ordinea lui.
 - **Captionul tău** în `caption.txt`; video-uri lungi (10+ min) fără probleme de memorie.
 
 ## Excluse explicit (se ocupă utilizatorul)

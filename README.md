@@ -7,7 +7,9 @@ Vezi totul live, într-o interfață în browser. Rulează doar pe calculatorul 
 1. Dublu-click pe **`setup_windows.bat`** → la final apare pe Desktop scurtătura **BioVitality Editor**.
 2. Opțional, pentru placa NVIDIA: dublu-click pe **`instaleaza_gpu.bat`** (~1,2 GB de descărcat).
 
-3. Opțional, pentru motorul Remotion: dublu-click pe **`instaleaza_remotion.bat`** (~300 MB de descărcat).
+3. Opțional, pentru decuparea „tu fără fundal”: dublu-click pe **`instaleaza_decupare.bat`** (~250 MB).
+
+4. Opțional, pentru motorul Remotion: dublu-click pe **`instaleaza_remotion.bat`** (~300 MB de descărcat).
    Fără el, aplicația folosește motorul clasic.
 
 ## Folosire
@@ -32,7 +34,10 @@ plus **culoarea fundalului** (negru implicit), care se vede unde poza nu ajunge.
 La **Ce se vede din tine**: **Zoom pe tine** și **Încadrare** (stânga ↔ dreapta, sus ↕ jos) aleg ce parte din video-ul tău apare în fereastră.
 **◆ Keyframes**: pui un keyframe, muți cursorul, pui altul și schimbi poziția / mărimea / încadrarea — fereastra se mișcă lin între ele
 (animația merge cu motorul Remotion; motorul clasic folosește poziția de la primul keyframe).
-Varianta cu tine **decupat** de fundal (ca efectul green screen de pe TikTok) vine cu „scoaterea fundalului” (punctul 1 din listă).
+**✂ Decupat** (ca efectul green screen de pe TikTok): tu, fără fundal, direct peste poză. O singură dată, rulează
+**`instaleaza_decupare.bat`** (~250 MB: onnxruntime pentru placa NVIDIA + modelul de decupare RobustVideoMatting, 15 MB).
+Se decupează doar porțiunea în care ești peste poză, nu tot video-ul; în previzualizare se face când alegi forma, iar la randare singur.
+Fără instalare, la randare apari într-o fereastră verticală. (Licența modelului: GPL-3.0 — folosire liberă, inclusiv comercială.)
 
 ## 📚 Biblioteca ta (tabul „📚 Bibliotecă”)
 - **🖼 Poze și clipuri:** alegi folderul cu materialele tale (logo, produse, ingrediente, ambalaje, B-roll).

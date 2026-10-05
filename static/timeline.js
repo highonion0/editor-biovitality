@@ -108,6 +108,7 @@ function buildTimeline() {
       <div class="card tlprev">
         <div class="tstage" id="tStage" style="aspect-ratio:${ar}">
           <div class="tbgl" id="tBgL"></div>
+          <video class="tcutv" id="tCutV" muted playsinline preload="auto"></video>
           <div class="tvids" id="tVids">
             <video class="main" id="tVidA" src="${T.src}" preload="auto" playsinline></video>
             <video class="main" id="tVidB" src="${T.src}" preload="auto" playsinline muted style="visibility:hidden"></video>
@@ -436,10 +437,23 @@ function moPaintVideo() {
     const pos = r ? `${r.fx * 100}% ${r.fy * 100}%` : '';
     Object.assign(v.style, { objectFit: r ? 'cover' : '', objectPosition: pos, transform: r ? `scale(${r.zoom})` : '', transformOrigin: pos });
   });
+  // decupat: video-ul tau ramane doar pentru sunet, iar peste fundal apare clipul transparent
+  const cv = $('#tCutV'), co = r && bgo && bgo.pip && bgo.pip.shape === 'cut' ? bgo : null, cut = co && cutReady(co);
+  if (cv) {
+    if (cut) {
+      if (cv.dataset.src !== cut) { cv.dataset.src = cut; cv.src = cut; }
+      const pos = `${r.fx * 100}% ${r.fy * 100}%`, want = T.t - co.start;
+      Object.assign(cv.style, { display: 'block', left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px',
+        objectPosition: pos, transform: `scale(${r.zoom})`, transformOrigin: pos });
+      if (T.playing) { if (cv.paused) cv.play().catch(() => {}); if (Math.abs(cv.currentTime - want) > 0.25) cv.currentTime = want; }
+      else { if (!cv.paused) cv.pause(); if (Math.abs(cv.currentTime - want) > 0.04) cv.currentTime = want; }
+    } else { cv.style.display = 'none'; if (!cv.paused) cv.pause(); }
+  }
   const z = moZoomAt(T.t), tr = moTransAt(T.t);
   const sc = (z ? z.s : 1) * (tr.style.scale || 1);
   wrap.style.transform = z ? `scale(${sc}) translate(${z.ox / sc}%, ${z.oy / sc}%)` : (sc !== 1 ? `scale(${sc})` : '');
-  wrap.style.opacity = tr.style.opacity != null ? tr.style.opacity : 1;
+  const hideMain = $('#tCutV') && $('#tCutV').style.display === 'block';      // decupat: se vede doar clipul transparent
+  wrap.style.opacity = hideMain ? 0 : tr.style.opacity != null ? tr.style.opacity : 1;
   const grade = T.look && !LK.off && !lkNeutral(T.look.color) ? 'url(#tGrade) ' : '';
   wrap.style.filter = (grade + (tr.style.blur ? `blur(${tr.style.blur.toFixed(2)}px)` : '')).trim() || 'none';
   const fl = $('#tFlash'); if (fl) { fl.style.opacity = tr.flash ? (tr.flash * 0.85).toFixed(3) : 0; }
@@ -451,10 +465,10 @@ function moPaintVideo() {
   }
 }
 function moPipRect(pip, W, H) {    // ca core.pip_rect
-  const ar = pip.shape === 'circle' ? 1 : pip.shape === 'tall' ? H / W : 1.25;
+  const ar = pip.shape === 'circle' ? 1 : pip.shape === 'tall' || pip.shape === 'cut' ? H / W : 1.25;
   const h = Math.min(H, pip.w * W * ar), w = h / ar;
   const x = Math.min(Math.max(0, pip.x * W - w / 2), W - w), y = Math.min(Math.max(0, pip.y * H - h / 2), H - h);
-  return { x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : Math.min(w, h) * 0.06 };
+  return { x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : pip.shape === 'cut' ? 0 : Math.min(w, h) * 0.06 };
 }
 const BG_DEFAULT = { fit: 'contain', scale: 1, y: 0.5, color: '#000000' };
 function moBgRect(b, ar, W, H) {   // ca core.bg_rect
@@ -595,10 +609,33 @@ function tlRestoreCut(k, only) {
 const PIP_DEFAULT = { shape: 'rect', w: 0.62, x: 0.5, y: 0.74, fx: 0.5, fy: 0.35, zoom: 1 };
 // poza intreaga; daca e mai lata decat ecranul, sta putin mai sus, ca fereastra ta sa incapa dedesubt
 const bgDefaultFor = o => ({ ...BG_DEFAULT, y: (o.ar || 1) < 16 / 9 ? 0.4 : 0.5 });
+/* „✂ Decupat”: clipul cu tine decupat (facut o data pe server, de cutout.py) pentru portiunea acestui fundal */
+const cutKey = o => `${o.start}|${o.end}|${JSON.stringify(T.segs)}`;
+const cutReady = o => (o._cut && o._cut.key === cutKey(o) && o._cut.url) || null;
+async function cutFetch(o, make) {
+  const key = cutKey(o);
+  if (make) { o._cut = { key, busy: true }; tlInspector(); }
+  const r = await fetch(`/api/cutout/${T.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start: o.start, end: o.end, segments: T.segs, make }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  o._cut = { key, url: r.url || null, error: r.error || null };
+  if (make && r.error) toast(r.error);
+  tlPaint(); if (T.sel && T.sel.kind === 'ov' && T.ovs[T.sel.i] === o) tlInspector();
+}
+function cutPanel(o) {
+  if (!S.cutout) { fetch('/api/cutout-status').then(r => r.json()).then(s => { S.cutout = s; tlInspector(); }).catch(() => {}); return '<span class="sub2">…</span>'; }
+  if (!S.cutout.ok) return `<div class="msg err" style="max-width:none">${esc(S.cutout.hint)} Până atunci, la randare apari într-o fereastră verticală.</div>`;
+  const c = o._cut && o._cut.key === cutKey(o) ? o._cut : null;
+  if (!c) { setTimeout(() => cutFetch(o, false), 0); return '<span class="sub2">Verific decuparea…</span>'; }
+  if (c.busy) return `<div class="msg wait"><span class="spin"></span>Te decupez din fundal (${fmtS(o.end - o.start)} de video, ${esc(S.cutout.label)})… poate dura puțin.</div>`;
+  if (c.url) return '<span class="sub2" style="margin:0">✓ Decuparea e gata și se vede în previzualizare. Dacă muți sau lungești fundalul, se refă.</span>';
+  return `<div class="row"><button class="tbtn" id="cutMake">✂ Decupează acum (pentru previzualizare)</button></div>
+    <span class="sub2" style="margin:0">Oricum se face singură la „Salvează și randează”.</span>`;
+}
 function pipPanel(o) {
   const lt = clamp(T.t - o.start, 0, o.end - o.start);
   const p = moPipAt(o.pip || PIP_DEFAULT, lt), keys = (o.pip && o.pip.keys) || [];
   const sh = (k, l) => `<button class="tbtn ${p.shape === k ? 'on' : ''}" data-shape="${k}">${l}</button>`;
+  const cutBox = p.shape === 'cut' ? `<div class="cutbox">${cutPanel(o)}</div>` : '';
   const sl = (k, l, min, max, fmt) => `<label>${l}</label><input type="range" data-pk="${k}" min="${min}" max="${max}" step="0.005" value="${p[k]}"><output data-po="${k}">${fmt(p[k])}</output>`;
   const pc = v => Math.round(v * 100) + '%', zx = v => (+v).toFixed(2) + '×';
   const g = o.bgimg || BG_DEFAULT;
@@ -609,7 +646,8 @@ function pipPanel(o) {
       <label class="gcol">Culoare fundal <input type="color" id="gCol" value="${g.color}"></label></div>
     <div class="kv">${gsl('scale', 'Mărime poză', 0.3, 2, pc)}${gsl('y', 'Poziție verticală', 0, 1, pc)}</div></div>
     <div class="pipbox"><b>🧍 Fereastra ta</b><span class="sub2" style="margin:0">Poza / clipul e în spate, tu apari aici. Intră și iese lin.</span>
-    <div class="row">${sh('rect', '▭ Dreptunghi')}${sh('circle', '● Cerc')}${sh('tall', '▯ Vertical')}</div>
+    <div class="row">${sh('rect', '▭ Dreptunghi')}${sh('circle', '● Cerc')}${sh('tall', '▯ Vertical')}${sh('cut', '✂ Decupat')}</div>
+    ${cutBox}
     <div class="row"><button class="tbtn" data-ppos="0.5,0.74">⬇ Jos</button><button class="tbtn" data-ppos="0.3,0.76">↙ Stânga jos</button>
       <button class="tbtn" data-ppos="0.7,0.76">↘ Dreapta jos</button><button class="tbtn" data-ppos="0.5,0.28">⬆ Sus</button></div>
     <div class="kv">${sl('w', 'Mărime', 0.2, 1, pc)}${sl('x', 'Orizontal', 0, 1, pc)}${sl('y', 'Vertical', 0, 1, pc)}</div>
@@ -645,7 +683,11 @@ function pipBind(p, o) {
     inp.oninput = () => { o.bgimg[inp.dataset.gk] = +inp.value; p.querySelector(`[data-go="${inp.dataset.gk}"]`).textContent = Math.round(+inp.value * 100) + '%'; tlPaint(); };
     inp.onchange = () => { tlCommit(gprev || tlSnap()); gprev = null; };
   });
-  p.querySelectorAll('[data-shape]').forEach(b => b.onclick = () => tlChange(() => { o.pip.shape = b.dataset.shape; }));
+  p.querySelectorAll('[data-shape]').forEach(b => b.onclick = () => {
+    tlChange(() => { o.pip.shape = b.dataset.shape; if (b.dataset.shape === 'cut' && o.pip.w < 0.7) o.pip.w = 0.8; });
+    if (b.dataset.shape === 'cut' && S.cutout && S.cutout.ok && !cutReady(o)) cutFetch(o, true);   // o pregatesc imediat
+  });
+  const cm = $('#cutMake', p); if (cm) cm.onclick = () => cutFetch(o, true);
   p.querySelectorAll('[data-ppos]').forEach(b => b.onclick = () => tlChange(() => { const [x, y] = b.dataset.ppos.split(',').map(Number); pipSet(o, { x, y }); }));
   let prev = null;
   p.querySelectorAll('input[data-pk]').forEach(inp => {

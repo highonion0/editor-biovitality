@@ -10,6 +10,9 @@ input/*
 output/*
 !output/.gitkeep
 
+# Modelul de decupare (se descarca cu instaleaza_decupare.bat)
+modele/
+
 # Python
 __pycache__/
 *.pyc

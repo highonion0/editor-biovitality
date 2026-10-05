@@ -15,7 +15,7 @@ export type CaptionStyle = {
 export type BgImg = {fit: 'contain' | 'cover'; scale: number; y: number; color: string};
 export type PipKey = {t: number; w?: number; x?: number; y?: number; fx?: number; fy?: number; zoom?: number};
 // fereastra ta: forma, latimea, centrul; fx / fy / zoom = ce parte din video-ul tau se vede in ea; keys = animatia ei
-export type Pip = {shape: 'rect' | 'circle' | 'tall'; w: number; x: number; y: number; fx?: number; fy?: number; zoom?: number; keys?: PipKey[]};
+export type Pip = {shape: 'rect' | 'circle' | 'tall' | 'cut'; w: number; x: number; y: number; fx?: number; fy?: number; zoom?: number; keys?: PipKey[]};
 export type FontDef = {id: string; ratio: number; files: [string, number, string][]};
 export type Overlay = {
   type: 'image' | 'video' | 'graphic'; src?: string; start: number; end: number;
@@ -24,6 +24,7 @@ export type Overlay = {
   rotation?: number; radius?: number; ar?: number; lane?: number; fit?: 'cover' | 'free' | 'bg';
   pip?: Pip;            // doar pentru fit = 'bg': fereastra in care apari tu, peste acest fundal
   bgimg?: BgImg;        // doar pentru fit = 'bg': cum sta poza-fundal si culoarea din spate
+  cut_src?: string;     // doar pentru forma 'cut': clipul cu tine decupat (WebM transparent)
   keys?: Keyframe[]; anim_in?: AnimKind; anim_out?: AnimKind; anim_dur?: number;
 };
 export type AudioItem = {

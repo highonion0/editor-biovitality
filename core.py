@@ -972,7 +972,7 @@ def clean_overlays(raw, total, assets_dir):
         })
     return out
 
-PIP_SHAPES = ("rect", "circle", "tall")
+PIP_SHAPES = ("rect", "circle", "tall", "cut")      # cut = tu decupat din fundal (cutout.py)
 PIP_DEFAULT = {"shape": "rect", "w": 0.62, "x": 0.5, "y": 0.74, "fx": 0.5, "fy": 0.35, "zoom": 1.0}
 # campurile ferestrei care se pot anima cu keyframes (forma nu): limitele lor
 PIP_FIELDS = {"w": (0.2, 1.0), "x": (0.0, 1.0), "y": (0.0, 1.0), "fx": (0.0, 1.0), "fy": (0.0, 1.0), "zoom": (1.0, 3.0)}
@@ -1028,13 +1028,13 @@ def bg_rect(bgimg, ar, W, H):
 
 def pip_rect(pip, W, H):
     """Fereastra in pixeli: (x, y, w, h, raza). Aceleasi formule ca in previzualizare (timeline.js) si Remotion (Main.tsx)."""
-    ar = {"rect": 1.25, "circle": 1.0, "tall": H / W}[pip["shape"]]
+    ar = {"rect": 1.25, "circle": 1.0, "tall": H / W, "cut": H / W}[pip["shape"]]
     w = pip["w"] * W
     h = min(H, w * ar)
     w = h / ar
     x = min(max(0.0, pip["x"] * W - w / 2), W - w)
     y = min(max(0.0, pip["y"] * H - h / 2), H - h)
-    r = min(w, h) / 2 if pip["shape"] == "circle" else min(w, h) * 0.06
+    r = min(w, h) / 2 if pip["shape"] == "circle" else 0.0 if pip["shape"] == "cut" else min(w, h) * 0.06
     return x, y, w, h, r
 
 def clean_audio(raw, total, assets_dir):
@@ -1529,7 +1529,9 @@ def remotion_props(job_dir, project, source_url, with_captions=True, asset_url=N
         if o.get("type") == "graphic":
             overlays.append(o)
         elif asset_url and (Path(job_dir) / ASSETS / o["asset"]).is_file():
-            overlays.append({**o, "src": f"{asset_url}/{urllib_quote(o['asset'])}"})
+            extra = {"cut_src": f"{asset_url}/{urllib_quote(o['cut_clip'])}"} \
+                if o.get("cut_clip") and (Path(job_dir) / ASSETS / o["cut_clip"]).is_file() else {}
+            overlays.append({**o, "src": f"{asset_url}/{urllib_quote(o['asset'])}", **extra})
     return {
         "width": project["width"], "height": project["height"], "fps": project["fps"],
         "source": source_url,
@@ -1684,16 +1686,27 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
                 pip = pip_static(clean_pip(o.get("pip")))
                 px, py, pw, ph, pr = pip_rect(pip, W, H)
                 ww, wh = max(2, int(pw / 2) * 2), max(2, int(ph / 2) * 2)
-                cx, cy, cw, ch = pip_crop(pip, W, H, ww, wh)
-                parts.append(f"[b{n - 1}]split[bk{n}][bw{n}]")
-                parts.append(f"[bw{n}]crop={int(cw)}:{int(ch)}:{int(cx)}:{int(cy)},scale={ww}:{wh},format=rgba[wr{n}]")
-                mask = job_dir / f"_fereastra{n}.png"
-                _round_mask(mask, ww, wh, 50 if pr >= min(ww, wh) / 2 - 1 else 6)
-                temps.append(mask)
-                k += 1
-                inputs.append(["-loop", "1", "-t", f"{total:.3f}", "-i", str(mask.resolve())])
-                parts.append(f"[{k}:v]format=gray[wm{n}m]")
-                parts.append(f"[wr{n}][wm{n}m]alphamerge[wm{n}]")
+                cutclip = job_dir / ASSETS / o["cut_clip"] if pip["shape"] == "cut" and o.get("cut_clip") else None
+                if cutclip and cutclip.is_file():
+                    # tu, decupat din fundal: clipul transparent (VP9 + alfa) facut de cutout.py pentru exact aceasta portiune
+                    tw, th = probe_size(cutclip)
+                    cx, cy, cw, ch = pip_crop(pip, tw, th, ww, wh)
+                    k += 1
+                    inputs.append(["-c:v", "libvpx-vp9", "-i", str(cutclip.resolve())])
+                    parts.append(f"[{k}:v]setpts=PTS-STARTPTS+{S:.3f}/TB,format=rgba" + (f",{grade}" if grade else "")
+                                 + f",crop={int(cw)}:{int(ch)}:{int(cx)}:{int(cy)},scale={ww}:{wh}[wm{n}]")
+                    parts.append(f"[b{n - 1}]null[bk{n}]")
+                else:
+                    cx, cy, cw, ch = pip_crop(pip, W, H, ww, wh)
+                    parts.append(f"[b{n - 1}]split[bk{n}][bw{n}]")
+                    parts.append(f"[bw{n}]crop={int(cw)}:{int(ch)}:{int(cx)}:{int(cy)},scale={ww}:{wh},format=rgba[wr{n}]")
+                    mask = job_dir / f"_fereastra{n}.png"
+                    _round_mask(mask, ww, wh, 50 if pr >= min(ww, wh) / 2 - 1 else 6)
+                    temps.append(mask)
+                    k += 1
+                    inputs.append(["-loop", "1", "-t", f"{total:.3f}", "-i", str(mask.resolve())])
+                    parts.append(f"[{k}:v]format=gray[wm{n}m]")
+                    parts.append(f"[wr{n}][wm{n}m]alphamerge[wm{n}]")
                 col = clean_bgimg(o.get("bgimg"))["color"].lstrip("#")
                 parts.append(f"[bk{n}]drawbox=x=0:y=0:w=iw:h=ih:color=0x{col}@1:t=fill:{en}[bf{n}]")
                 parts.append(f"[bf{n}][o{n}]overlay={int(bx)}:{int(by)}:{en}:eof_action=pass[bc{n}]")
@@ -1754,6 +1767,8 @@ def render_final(job_dir, project, report, source_url, asset_url=None, captions=
     if n_slots:
         report({"type": "log", "msg": f"Atenție: {n_slots} {'loc de B-roll e încă gol' if n_slots == 1 else 'locuri de B-roll sunt încă goale'} "
                                       "— le-am sărit. Umple-le din Timeline cu clipurile din DaVinci."})
+    import cutout
+    project = cutout.prepare(job_dir, json.loads(json.dumps(project)), report)    # copie: clipurile decupate nu intra in proiect
     name = _next_final(job_dir)
     done = False
     if remotion_status()["ok"] and source_url:
@@ -1912,8 +1927,10 @@ def variant_project(project, v):
 
 def render_variant(job_dir, project, v, report, source_url, asset_url=None, captions=True):
     """Randeaza o varianta de carlig in varianta_<litera>.mp4 (alt nume decat video_final, ca sa nu-l inlocuiasca)."""
+    import cutout
     job_dir = Path(job_dir)
     vp, cap_out = variant_project(project, v)
+    vp = cutout.prepare(job_dir, json.loads(json.dumps(vp)), report)
     name = f"varianta_{v['label']}.mp4"
     dst = job_dir / name
     done = False
