@@ -57,6 +57,12 @@ Alternativ, selectează bucata și apasă **◀ Mută mai devreme / Mută mai t�
   Cele care trec peste mai multe bucăți (de ex. muzica de fundal) rămân pe loc.
 - Între două bucăți mutate una lângă alta apare semnul **⋮**: click pe el ca să pui o tranziție.
 
+## 🧭 Direcția ta (tabul „💡 Propuneri”)
+Înainte de „✦ Analizează și propune”, scrii în **🧭 Direcția ta** cum vrei să arate video-ul: tonul, ritmul, ce să accentueze, ce să evite
+(ex: „ton calm, fără efecte sonore, accent pe cifre, grafică puțină”). Claude propune după ea, cu prioritate față de regulile lui obișnuite,
+și îți spune sus cum a aplicat-o. Direcția rămâne la video; bifează „Folosește direcția asta și la video-urile următoare”
+ca să apară deja scrisă data viitoare. O poți schimba oricând și apeși „↻ Din nou”.
+
 ## 📣 Publicare (în Timeline, tabul „📣 Publicare”)
 **✍ Captionul tău** (fără cheie API): scrii textul postării în tab. Se salvează singur în `caption.txt`, în folderul video-ului, și îl deschizi cu Notepad.
 Îl descarci și din pagina video-ului, cu butonul **Caption .txt**. Dacă ceri apoi pachetul de la Claude, el pornește de la captionul tău.

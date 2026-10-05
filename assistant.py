@@ -364,7 +364,18 @@ Ce contează:
 """
 
 
-def propose(project, state, sfx_names, media_names=()):
+VISION_FILE = core.APP_DIR / "directie_implicita.json"   # directia ei generala, pentru video-urile urmatoare
+
+def vision_default():
+    try:
+        return str(json.loads(VISION_FILE.read_text(encoding="utf-8")).get("text") or "")
+    except Exception:
+        return ""
+
+def save_vision_default(text):
+    VISION_FILE.write_text(json.dumps({"text": str(text or "")[:3000]}, ensure_ascii=False), encoding="utf-8")
+
+def propose(project, state, sfx_names, media_names=(), vision=""):
     key = api_key()
     if not key:
         raise AssistantError("Nu ai setat încă cheia API. O adaugi din tabul Asistent.")
@@ -372,6 +383,10 @@ def propose(project, state, sfx_names, media_names=()):
     media = "\n".join(f"- {n}" for n in media_names[:400]) if media_names else "(biblioteca de poze și clipuri e goală — nu propune „libmedia”)"
     system = build_system(project, state) + PROPOSE_GUIDE + "\nBiblioteca de efecte sonore (categorie / nume):\n" + lib + \
         "\n\nBiblioteca ei de poze și clipuri (categorie / nume):\n" + media
+    if vision.strip():
+        system += ("\n\nDIRECȚIA EI pentru acest video (are prioritate față de regulile generale de mai sus — stil, ritm, ce să "
+                   "accentuezi, ce să eviți; dacă cere mai puține sau mai multe elemente, respectă asta). Spune în „summary” "
+                   "cum ai aplicat-o:\n" + vision.strip()[:3000])
     data, inp = _tool_call(system, "Analizează video-ul și propune-mi cum l-ai edita.", propose_tool(), 16000)
     if inp is None:
         raise AssistantError("Claude n-a trimis propuneri. Mai încearcă o dată.")

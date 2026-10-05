@@ -69,7 +69,7 @@ async function openTimeline(j) {
   clearTimeout(slow);
   if (pv.url) d.source = pv.url;
   Object.assign(T, {
-    on: true, id: j.id, name: j.name, pr: d.project, src: d.source, assetBase: d.asset_base, assets: d.assets,
+    on: true, id: j.id, name: j.name, pr: d.project, visionDefault: d.vision_default || '', src: d.source, assetBase: d.asset_base, assets: d.assets,
     segs: deep(d.project.segments), ovs: deep(d.project.overlays || []), auds: deep(d.project.audio || []),
     look: deep(d.project.look || { color: { preset: 'original', brightness: 0, contrast: 1, saturation: 1, temperature: 0, tint: 0 }, audio: { denoise: 'off', clear: false, loudness: false } }),
     zooms: deep(d.project.zooms || []), trans: deep(d.project.transitions || {}),

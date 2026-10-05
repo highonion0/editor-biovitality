@@ -352,3 +352,6 @@
 /* decupat: clipul transparent cu tine, peste fundal */
 .tstage .tcutv{position:absolute;display:none;z-index:1;object-fit:cover;pointer-events:none;background:transparent}
 .cutbox{display:flex;flex-direction:column;gap:6px}
+.pvis{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid rgba(232,168,59,.35);border-radius:11px}
+.pvis summary{cursor:pointer;font-size:13px}
+.pvis textarea{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line2);border-radius:9px;color:var(--text);font:inherit;font-size:13px;padding:8px 10px;resize:vertical;margin-top:6px}

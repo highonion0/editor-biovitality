@@ -12,7 +12,20 @@ function pScreenText(p) {
   const pr = p.props && typeof p.props === 'object' ? p.props : {};
   return t.fields.filter(f => f.t === 'text').map(f => String(pr[f.k] ?? '').trim()).filter(Boolean).join(' · ');
 }
-function pState() { return S.props[T.id] || (S.props[T.id] = { state: 'idle', list: [], summary: '' }); }
+function pState() { return S.props[T.id] || (S.props[T.id] = { state: 'idle', list: [], summary: '', vision: T.pr.vision || T.visionDefault || '' }); }
+// directia ei: Claude o citeste inainte sa propuna si o respecta cu prioritate
+function pVisionHTML(st, open) {
+  const box = `<textarea id="pVision" rows="4" placeholder="ex: Ton calm și elegant, fără efecte sonore. Vreau să accentuezi cifrele și beneficiile Lutropep, grafică puțină și curată, un singur zoom pe finalul cu îndemnul. Fără B-roll medical.">${esc(st.vision || '')}</textarea>
+    <label class="chk"><input type="checkbox" id="pVisDef" ${st.visDef ? 'checked' : ''}>Folosește direcția asta și la video-urile următoare</label>`;
+  return open ? `<div class="pvis"><b>🧭 Direcția ta</b><span class="sub2" style="margin:0">Scrie cum vrei să arate video-ul: tonul, ritmul, ce să accentueze, ce să evite. Claude propune după ea.</span>${box}</div>`
+    : `<details class="pvis"><summary><b>🧭 Direcția ta</b> ${st.vision ? '— ' + esc(st.vision.slice(0, 70)) + (st.vision.length > 70 ? '…' : '') : '(nescrisă)'}</summary>${box}
+      <span class="sub2" style="margin:0">Schimb-o și apasă „Din nou” ca să primești propuneri după ea.</span></details>`;
+}
+function pBindVision(st) {
+  const v = $('#pVision'), d = $('#pVisDef');
+  if (v) v.oninput = () => { st.vision = v.value; };
+  if (d) d.onchange = () => { st.visDef = d.checked; };
+}
 
 function renderProposals() {
   const body = $('#tInspBody'); if (!body || T.tab !== 'prop') return;
@@ -34,9 +47,11 @@ function renderProposals() {
       <p class="sub2">Claude citește transcrierea${T.pr.captions && T.pr.captions.cues && T.pr.captions.cues.length ? '' : ' (video-ul n-are subtitrări, deci propunerile vor fi puține)'} și ce e deja pe timeline,
         apoi îți propune editarea: grafică pe cifre și idei, cuvinte evidențiate în subtitrări, efecte sonore din biblioteca ta, tăieturi pentru bâlbe, plus idei de B-roll și zoom.
         Tu bifezi ce-ți place și abia apoi se aplică. O analiză = o singură cerere (câțiva cenți).</p>
+      ${pVisionHTML(st, true)}
       ${st.error ? `<div class="msg err" style="max-width:none">${esc(st.error)}</div>` : ''}
       <button class="cta" id="pRun">✦ Analizează și propune</button></div>`;
     $('#pRun').onclick = pRun;
+    pBindVision(st);
     return;
   }
   const n = st.list.filter(p => p.checked).length;
@@ -58,6 +73,7 @@ function renderProposals() {
         ${p.result ? `<small class="pres">${p.applied ? '✓' : '✗'} ${esc(p.result)}</small>` : ''}</div></div>`;
   body.innerHTML = `<div class="pbox">
     ${st.summary ? `<div class="psum">${esc(st.summary)}</div>` : ''}
+    ${pVisionHTML(st, false)}
     <div class="ptools"><span>${st.list.length} propuneri · ${n} bifate</span><span class="sp"></span>
       <button class="btn sm" id="pAll">Toate</button><button class="btn sm" id="pNone">Nimic</button><button class="btn sm" id="pAgain" title="Cere o analiză nouă">↻ Din nou</button></div>
     <div class="plist" id="pList">${st.list.map(row).join('')}</div>
@@ -82,13 +98,15 @@ function renderProposals() {
   $('#pNone').onclick = () => { st.list.forEach(p => { p.checked = false; }); renderProposals(); };
   $('#pAgain').onclick = () => { if (!st.list.some(p => p.applied) || confirm('Cer o analiză nouă? Lista de acum dispare (ce ai aplicat rămâne pe timeline).')) pRun(); };
   $('#pApply').onclick = pApply;
+  pBindVision(st);
 }
 
 async function pRun() {
   const st = pState(), jobId = T.id;
   st.state = 'loading'; st.error = null; renderProposals();
   const r = await fetch(`/api/propose/${jobId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ state: aiState() }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+    body: JSON.stringify({ state: aiState(), vision: st.vision || '', vision_default: !!st.visDef }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  T.pr.vision = st.vision || ''; if (st.visDef) T.visionDefault = st.vision || '';
   if (r.error) { st.state = 'error'; st.error = r.error; }
   else {
     st.state = 'ready'; st.summary = r.summary; st.applied = false;

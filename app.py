@@ -671,7 +671,8 @@ class Handler(BaseHTTPRequestHandler):
                     draft = None
             self._json({"draft": draft, "project": {k: pr.get(k) for k in ("width", "height", "fps", "source_duration",
                                                            "segments", "captions", "overlays", "audio", "look", "zooms", "transitions",
-                                                           "materials_pending")},
+                                                           "materials_pending", "vision")},
+                        "vision_default": assistant.vision_default(),
                         "look_presets": core.COLOR_PRESETS, "look_default": core.load_default_look(),
                         "source": f"/media/{job['id']}/source", "asset_base": f"/asset/{job['id']}",
                         "assets": assets, "busy": job["status"] in ("running", "queued")})
@@ -1077,9 +1078,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "Proiectul nu există încă."}, 404)
             body = self._read_json() or {}
             names = [f"{it['cat']} / {it['name']}" for it in sfx_scan()["items"]]
+            vision = str(body.get("vision") or "")[:3000]
+            pr = core.load_project(job["dir"])
+            if vision != (pr.get("vision") or ""):          # directia ramane la video (o regasesti cand revii)
+                pr["vision"] = vision
+                core.save_project(job["dir"], pr)
+            if body.get("vision_default"):
+                assistant.save_vision_default(vision)
             try:
-                res = assistant.propose(core.load_project(job["dir"]), body.get("state") or {}, names,
-                                        lib_names("media"))
+                res = assistant.propose(pr, body.get("state") or {}, names, lib_names("media"), vision)
             except assistant.AssistantError as e:
                 return self._json({"error": str(e)}, 400)
             except Exception as e:

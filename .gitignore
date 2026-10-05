@@ -3,6 +3,7 @@ asistent.json
 stil_subtitrari.json
 look_implicit.json
 biblioteci.json
+directie_implicita.json
 
 # Video-uri de intrare / rezultate
 input/*
