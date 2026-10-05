@@ -139,8 +139,10 @@ Tăieturile vin nebifate. Un singur **Ctrl+Z** anulează tot ce ai aplicat. O an
 ## Scriptul (pasul „Pregătit”)
 După drag & drop, video-ul **așteaptă**: vezi video-ul, lipești scriptul (opțional) și apeși **„Pornește”**
 (sau „Pornește toate pregătitele” când ai mai multe). Cu script, programul:
-- **scoate reluările** — dacă ai spus o frază de mai multe ori, păstrează ultima variantă;
+- **scoate reluările** — dacă ai spus o frază de mai multe ori, păstrează **ultima variantă completă**
+  (o încercare oprită la jumătate nu câștigă în fața uneia întregi, chiar dacă e mai târzie);
 - **scoate ce nu e în script** — bâlbe, fraze abandonate, „stai, o iau de la capăt”;
+- **pune frazele în ordinea din script**, chiar dacă le-ai filmat în altă ordine (de ex. semnătura la început);
 - pune în **subtitrări textul exact din script** (diacritice, punctuație).
 Fiecare opțiune se poate opri. Dacă scriptul se potrivește cu mai puțin de jumătate din video, nu taie nimic
 în afara lui (doar reluări și pauze). Orice tăietură se poate readuce din Timeline (✂).

@@ -5,8 +5,9 @@ BioVitality Editor - potrivirea video-ului cu scriptul.
 Ideea:
   1. Scriptul se imparte in fraze ("unitati").
   2. Pentru fiecare fraza caut in transcriere toate locurile unde ai spus-o ("dubluri").
-  3. Aleg cate o dubla pe fraza, in ordinea scriptului, preferand ULTIMA dubla buna
-     (reiei pana iese bine, deci ultima e cea pastrata).
+  3. Aleg cate o dubla pe fraza, preferand ULTIMA dubla COMPLETA (reiei pana iese bine, deci ultima buna
+     e cea pastrata; o incercare oprita la jumatate nu castiga in fata uneia intregi).
+     Ordinea in care ai filmat nu conteaza: frazele ajung pe timeline in ordinea din script.
   4. Ce nu apartine dublelor alese = reluari sau vorbe din afara scriptului -> se pot taia.
   5. Subtitrarile iau textul exact din script, cu timpii din transcriere.
 """
@@ -17,6 +18,8 @@ import unicodedata
 
 MIN_SCORE = 0.55      # cat din fraza trebuie sa se regaseasca intr-o dubla
 MIN_UNIT_WORDS = 4    # frazele mai scurte se lipesc de urmatoarea (potrivire mai sigura)
+GOOD_SCORE = 0.8      # o dubla „buna” (aproape toata fraza); intre ele castiga cea mai tarzie
+CUT_SHORT = 0.25      # penalizarea unei dduble oprite inainte de finalul frazei („...mai ales în...”)
 
 
 def norm(w):
@@ -88,6 +91,8 @@ def find_takes(unit_n, words_n):
         s, e = i + pairs[0][1], i + pairs[-1][1]
         spread = max(0, (e - s + 1) - L) / L                    # dubla "intinsa" peste alta dubla
         score = len(pairs) / L - 0.3 * spread
+        if L - 1 - pairs[-1][0] >= max(2, 0.15 * L):            # n-a ajuns la finalul frazei: bâlbă / oprită
+            score -= CUT_SHORT
         if score >= MIN_SCORE:
             cands.append({"s": s, "e": e, "score": round(score, 3), "pairs": [(pu, i + pw) for pu, pw in pairs]})
     kept = []
@@ -97,29 +102,44 @@ def find_takes(unit_n, words_n):
     return sorted(kept, key=lambda c: c["s"])
 
 
+def _preference(takes):
+    """Dublele unei fraze, de la cea preferata: intai cele bune (cea mai tarzie prima), apoi restul dupa scor."""
+    if not takes:
+        return []
+    best = max(c["score"] for c in takes)
+    good = [c for c in takes if c["score"] >= max(GOOD_SCORE, best - 0.08)] or [max(takes, key=lambda c: c["score"])]
+    rest = sorted((c for c in takes if not any(c is g for g in good)), key=lambda c: (-c["score"], -c["s"]))
+    return sorted(good, key=lambda c: -c["s"]) + rest
+
+
 def choose_takes(all_takes):
-    """Cate o dubla pe fraza, in ordinea scriptului si in timp. Maximizez: 1) cate fraze acopar,
-    2) cat de tarzii sunt dublele (ultima dubla castiga), 3) cat de bine se potrivesc."""
-    items = [(k, c) for k, takes in enumerate(all_takes) for c in takes]
-    items.sort(key=lambda x: (x[0], x[1]["s"]))
-    best, prev = [], []
-    for x, (k, c) in enumerate(items):
-        val = 1e6 + c["s"] + c["score"]
-        b, p = val, -1
-        for y in range(x):
-            ky, cy = items[y]
-            if ky < k and cy["e"] < c["s"] and best[y] + val > b:
-                b, p = best[y] + val, y
-        best.append(b); prev.append(p)
-    if not items:
-        return {}
-    x = max(range(len(items)), key=lambda i: best[i])
+    """Cate o dubla pe fraza. Nu cer ca dublele sa fie in ordinea filmarii (le asez pe timeline in ordinea
+    scriptului), doar sa nu se suprapuna. Frazele cu cea mai sigura dubla isi aleg primele."""
+    prefs = {k: _preference(t) for k, t in enumerate(all_takes) if t}
     chosen = {}
-    while x >= 0:
-        k, c = items[x]
-        chosen[k] = c
-        x = prev[x]
+    for k in sorted(prefs, key=lambda k: -prefs[k][0]["score"]):
+        for c in prefs[k]:
+            if all(c["e"] < o["s"] or c["s"] > o["e"] for o in chosen.values()):
+                chosen[k] = c
+                break
     return chosen
+
+
+def keep_order(al):
+    """Frazele gasite, in ordinea din script (asa ajung pe timeline)."""
+    return sorted(al["chosen"])
+
+
+def keep_intervals(al, words, before, after):
+    """Pentru fiecare fraza gasita, in ordinea scriptului: intervalul din sursa (cu respiro), fara sa intre
+    peste dubla altei fraze (daca doua dduble sunt lipite in filmare, le despart la mijlocul pauzei dintre ele)."""
+    iv = {k: [words[c["s"]][0] - before, words[c["e"]][1] + after] for k, c in al["chosen"].items()}
+    by_time = sorted(iv, key=lambda k: iv[k][0])
+    for k1, k2 in zip(by_time, by_time[1:]):
+        if iv[k1][1] > iv[k2][0]:
+            mid = (words[al["chosen"][k1]["e"]][1] + words[al["chosen"][k2]["s"]][0]) / 2
+            iv[k1][1], iv[k2][0] = mid, mid
+    return [(k, tuple(iv[k])) for k in keep_order(al)]
 
 
 def align(script_text, words):

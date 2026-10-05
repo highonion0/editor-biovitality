@@ -2050,9 +2050,12 @@ def apply_script(script, words, segs, cfg, report):
     if not trusted:
         report({"type": "log", "msg": f"Am regăsit doar {n_found} din {n_units} fraze din script — nu tai ce e în afara lui, ca să nu pierzi material."})
     a, b = cfg["margin"], cfg["margin_after"] if cfg["margin_after"] is not None else cfg["margin"]
-    if cfg.get("script_offscript") and trusted:
-        keep = [(x - a, y + b) for x, y in sa.take_intervals(al, words)]
-        segs = sa.intersect(base, keep)
+    keep_mode = bool(cfg.get("script_offscript") and trusted)
+    if keep_mode:
+        # doar dublele alese, in ORDINEA DIN SCRIPT (chiar daca le-ai filmat in alta ordine)
+        segs = []
+        for _k, iv in sa.keep_intervals(al, words, a, b):
+            segs += sa.intersect(base, [iv])
     elif cfg.get("script_retakes"):
         segs = sa.subtract(base, sa.span_intervals(al["retake"], words))
     if not segs:
@@ -2064,7 +2067,8 @@ def apply_script(script, words, segs, cfg, report):
     summary = f"Script: {n_found}/{n_units} fraze · {n_retakes} reluări · −{removed:.1f} s"
     report({"type": "stage_detail", "n": 2, "detail": summary})
     if cfg.get("script_captions"):
-        extra = [w_ for i, w_ in enumerate(words) if i not in al["used"] and i not in al["retake"]]
+        # cand pastrez doar dublele alese, restul vorbelor e taiat oricum: nu le amestec in subtitrari
+        extra = [] if keep_mode else [w_ for i, w_ in enumerate(words) if i not in al["used"] and i not in al["retake"]]
         words = sorted(sa.script_words(al, words) + extra)
     return segs, words, summary
 
