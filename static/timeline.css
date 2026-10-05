@@ -347,3 +347,5 @@
 .matpend .row{display:flex;flex-wrap:wrap;gap:6px}
 .gcol{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .gcol input{width:34px;height:26px;padding:0;border:1px solid var(--line2);border-radius:6px;background:none;cursor:pointer}
+.pkl{gap:6px}
+.pkc{display:inline-flex;gap:2px}

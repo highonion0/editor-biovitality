@@ -973,15 +973,42 @@ def clean_overlays(raw, total, assets_dir):
     return out
 
 PIP_SHAPES = ("rect", "circle", "tall")
-PIP_DEFAULT = {"shape": "rect", "w": 0.62, "x": 0.5, "y": 0.74}
+PIP_DEFAULT = {"shape": "rect", "w": 0.62, "x": 0.5, "y": 0.74, "fx": 0.5, "fy": 0.35, "zoom": 1.0}
+# campurile ferestrei care se pot anima cu keyframes (forma nu): limitele lor
+PIP_FIELDS = {"w": (0.2, 1.0), "x": (0.0, 1.0), "y": (0.0, 1.0), "fx": (0.0, 1.0), "fy": (0.0, 1.0), "zoom": (1.0, 3.0)}
 
 def clean_pip(raw):
-    """Fereastra in care apari tu cand o poza / un clip e fundal: forma, latimea (din latimea cadrului) si centrul."""
+    """Fereastra in care apari tu cand o poza / un clip e fundal: forma, latimea (din latimea cadrului), centrul,
+    plus ce parte din video-ul tau se vede in ea (fx, fy = punctul pe care se incadreaza, zoom) si keyframes."""
     raw = raw if isinstance(raw, dict) else {}
-    return {"shape": raw.get("shape") if raw.get("shape") in PIP_SHAPES else PIP_DEFAULT["shape"],
-            "w": round(_num(raw.get("w"), 0.2, 1.0, PIP_DEFAULT["w"]), 4),
-            "x": round(_num(raw.get("x"), 0.0, 1.0, PIP_DEFAULT["x"]), 4),
-            "y": round(_num(raw.get("y"), 0.0, 1.0, PIP_DEFAULT["y"]), 4)}
+    out = {"shape": raw.get("shape") if raw.get("shape") in PIP_SHAPES else PIP_DEFAULT["shape"]}
+    for k, (lo, hi) in PIP_FIELDS.items():
+        out[k] = round(_num(raw.get(k), lo, hi, PIP_DEFAULT[k]), 4)
+    keys = []
+    for kf in (raw.get("keys") or [])[:50]:
+        if not isinstance(kf, dict):
+            continue
+        k2 = {"t": round(_num(kf.get("t"), 0, 1e5, 0), 3)}
+        for k, (lo, hi) in PIP_FIELDS.items():
+            if kf.get(k) is not None:
+                k2[k] = round(_num(kf.get(k), lo, hi, out[k]), 4)
+        keys.append(k2)
+    if keys:
+        out["keys"] = sorted(keys, key=lambda kf: kf["t"])
+    return out
+
+def pip_static(pip):
+    """Motorul clasic nu animeaza fereastra: foloseste pozitia de la primul keyframe (sau cea de baza)."""
+    first = (pip.get("keys") or [{}])[0]
+    return {**pip, **{k: v for k, v in first.items() if k in PIP_FIELDS}}
+
+def pip_crop(pip, W, H, ww, wh):
+    """Ce parte din cadrul tau (W x H) intra in fereastra (ww x wh): ca CSS object-fit: cover +
+    object-position fx fy + scale(zoom) cu originea in acelasi punct. Intoarce (x, y, latime, inaltime) in cadru."""
+    s = max(ww / W, wh / H) * pip.get("zoom", 1.0)
+    cw, ch = min(W, ww / s), min(H, wh / s)
+    fx, fy = pip.get("fx", 0.5), pip.get("fy", 0.35)
+    return fx * (W - cw), fy * (H - ch), cw, ch
 
 def clean_bgimg(raw):
     """Cum sta poza / clipul-fundal: intreaga (contain) sau umple ecranul (cover), marimea, pozitia pe verticala,
@@ -1596,7 +1623,8 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
         col = clean_look(project.get("look"))["color"]
         grade = None if color_neutral(col) else ffmpeg_color(col)
         n_move = len(clean_zooms(project.get("zooms"), total)) + len(clean_trans(project.get("transitions"))) + \
-            sum(1 for o in project.get("overlays", []) if o.get("keys") or o.get("anim_in") or o.get("anim_out"))
+            sum(1 for o in project.get("overlays", []) if o.get("keys") or o.get("anim_in") or o.get("anim_out")
+                or (o.get("pip") or {}).get("keys"))
         if n_move:
             report({"type": "log", "msg": f"Atenție: zoom-ul, tranzițiile și animațiile ({n_move}) merg doar cu motorul Remotion — "
                                           "le-am sărit. Instalează-l cu instaleaza_remotion.bat."})
@@ -1653,12 +1681,12 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
             en = f"enable='between(t,{S:.3f},{E:.3f})'"
             if bg:
                 # tu, intr-o fereastra (decupata din cadrul tau, cu centrul putin spre fata), peste fundal
-                px, py, pw, ph, pr = pip_rect(clean_pip(o.get("pip")), W, H)
+                pip = pip_static(clean_pip(o.get("pip")))
+                px, py, pw, ph, pr = pip_rect(pip, W, H)
                 ww, wh = max(2, int(pw / 2) * 2), max(2, int(ph / 2) * 2)
-                ar = wh / ww
-                cw, ch = (W, W * ar) if W * ar <= H else (H / ar, H)
+                cx, cy, cw, ch = pip_crop(pip, W, H, ww, wh)
                 parts.append(f"[b{n - 1}]split[bk{n}][bw{n}]")
-                parts.append(f"[bw{n}]crop={int(cw)}:{int(ch)}:(iw-ow)/2:(ih-oh)*0.3,scale={ww}:{wh},format=rgba[wr{n}]")
+                parts.append(f"[bw{n}]crop={int(cw)}:{int(ch)}:{int(cx)}:{int(cy)},scale={ww}:{wh},format=rgba[wr{n}]")
                 mask = job_dir / f"_fereastra{n}.png"
                 _round_mask(mask, ww, wh, 50 if pr >= min(ww, wh) / 2 - 1 else 6)
                 temps.append(mask)

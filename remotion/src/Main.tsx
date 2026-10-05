@@ -3,7 +3,7 @@ import {AbsoluteFill, Audio, Img, interpolate, OffthreadVideo, Sequence, Series,
 import {loadFont} from '@remotion/fonts';
 import {Captions} from './Captions';
 import {Graphic, TEMPLATES} from './Graphic';
-import type {AudioItem, BgImg, FontDef, Keyframe, Overlay, Pip, Project, Zoom} from './types';
+import type {AudioItem, BgImg, FontDef, Keyframe, Overlay, Pip, PipKey, Project, Zoom} from './types';
 
 /* ---- miscarea: ACELEASI reguli ca in previzualizarea din editor (motion.js) ---- */
 const ease = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -72,14 +72,23 @@ export const bgRect = (b: BgImg, ar: number, W: number, H: number) => {
   const w = (b.fit === 'cover' ? Math.max(W, H / ar) : Math.min(W, H / ar)) * b.scale, h = w * ar;
   return {x: (W - w) / 2, y: b.y * H - h / 2, w, h};
 };
+// fereastra la momentul lt (secunde de la inceputul fundalului), intre keyframes (ca moPipAt din timeline)
+export const pipAt = (pip: Pip, lt: number): Pip => {
+  const ks = pip.keys ?? [];
+  const f = (k: keyof PipKey, d: number) => keyAt(ks as unknown as Keyframe[], k as keyof Keyframe, lt, d);
+  return {...pip, w: f('w', pip.w), x: f('x', pip.x), y: f('y', pip.y),
+    fx: f('fx', pip.fx ?? 0.5), fy: f('fy', pip.fy ?? 0.35), zoom: f('zoom', pip.zoom ?? 1)};
+};
 // la momentul t: dreptunghiul tau (tot cadrul sau fereastra), cu intrare / iesire lina de 0,35 s
 export const mainRect = (overlays: Overlay[], t: number, W: number, H: number) => {
   const o = overlays.find((x) => x.fit === 'bg' && x.pip && t >= x.start && t < x.end);
   if (!o || !o.pip) return null;
   const d = Math.min(0.35, (o.end - o.start) / 3);
   const k = ease(Math.min(1, (t - o.start) / d, (o.end - t) / d));
-  const p = pipRect(o.pip, W, H), lerp = (a: number, b: number) => a + (b - a) * k;
-  return {x: lerp(0, p.x), y: lerp(0, p.y), w: lerp(W, p.w), h: lerp(H, p.h), r: lerp(0, p.r)};
+  const pip = pipAt(o.pip, t - o.start);
+  const p = pipRect(pip, W, H), lerp = (a: number, b: number) => a + (b - a) * k;
+  return {x: lerp(0, p.x), y: lerp(0, p.y), w: lerp(W, p.w), h: lerp(H, p.h), r: lerp(0, p.r),
+    fx: lerp(0.5, pip.fx ?? 0.5), fy: lerp(0.5, pip.fy ?? 0.35), zoom: lerp(1, pip.zoom ?? 1)};
 };
 
 // fonturile aplicatiei: o singura data; loadFont opreste randarea pana sunt gata
@@ -146,7 +155,8 @@ const Track: React.FC<{a: AudioItem}> = ({a}) => {
 
 /* Pista principala, cu zoom pe tot video-ul si tranzitii la taieturi.
    Tranzitia se face peste cadrele dinaintea taieturii, deci durata video-ului NU se schimba. */
-const MainTrack: React.FC<{p: Project; windowed?: boolean}> = ({p, windowed}) => {
+type Frame = {fx: number; fy: number; zoom: number};
+const MainTrack: React.FC<{p: Project; frame?: Frame}> = ({p, frame: win}) => {
   const {fps} = p;
   const frame = useCurrentFrame();
   const t = frame / fps;
@@ -184,7 +194,9 @@ const MainTrack: React.FC<{p: Project; windowed?: boolean}> = ({p, windowed}) =>
               return (
                 <Series.Sequence key={i} durationInFrames={Math.max(1, b - a)}>
                   <OffthreadVideo src={p.source} startFrom={a} endAt={b} muted={!!p.main_audio}
-                    style={{width: '100%', height: '100%', objectFit: 'cover', objectPosition: windowed ? '50% 30%' : '50% 50%'}} />
+                    style={{width: '100%', height: '100%', objectFit: 'cover',
+                      ...(win ? {objectPosition: `${win.fx * 100}% ${win.fy * 100}%`, transform: `scale(${win.zoom})`,
+                        transformOrigin: `${win.fx * 100}% ${win.fy * 100}%`} : {})}} />
                   {p.main_audio ? <Audio src={p.main_audio} startFrom={a} endAt={b} /> : null}
                 </Series.Sequence>
               );
@@ -204,7 +216,7 @@ const MainWindow: React.FC<{p: Project}> = ({p}) => {
   return (
     <div style={{position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: r.r, overflow: 'hidden',
       boxShadow: '0 12px 40px rgba(0,0,0,.45)'}}>
-      <MainTrack p={p} windowed />
+      <MainTrack p={p} frame={{fx: r.fx, fy: r.fy, zoom: r.zoom}} />
     </div>
   );
 };

@@ -13,7 +13,9 @@ export type CaptionStyle = {
   anim?: 'none' | 'highlight' | 'pop' | 'reveal' | 'pill' | 'single'; anim_color?: string;
 };
 export type BgImg = {fit: 'contain' | 'cover'; scale: number; y: number; color: string};
-export type Pip = {shape: 'rect' | 'circle' | 'tall'; w: number; x: number; y: number};
+export type PipKey = {t: number; w?: number; x?: number; y?: number; fx?: number; fy?: number; zoom?: number};
+// fereastra ta: forma, latimea, centrul; fx / fy / zoom = ce parte din video-ul tau se vede in ea; keys = animatia ei
+export type Pip = {shape: 'rect' | 'circle' | 'tall'; w: number; x: number; y: number; fx?: number; fy?: number; zoom?: number; keys?: PipKey[]};
 export type FontDef = {id: string; ratio: number; files: [string, number, string][]};
 export type Overlay = {
   type: 'image' | 'video' | 'graphic'; src?: string; start: number; end: number;

@@ -432,7 +432,10 @@ function moPaintVideo() {
   Object.assign(wrap.style, r ? { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', right: 'auto', bottom: 'auto',
     borderRadius: r.r + 'px', overflow: 'hidden', boxShadow: '0 8px 26px rgba(0,0,0,.45)' }
     : { left: '', top: '', width: '', height: '', right: '', bottom: '', borderRadius: '', overflow: '', boxShadow: '' });
-  wrap.querySelectorAll('video.main').forEach(v => { v.style.objectFit = r ? 'cover' : ''; v.style.objectPosition = r ? '50% 30%' : ''; });
+  wrap.querySelectorAll('video.main').forEach(v => {
+    const pos = r ? `${r.fx * 100}% ${r.fy * 100}%` : '';
+    Object.assign(v.style, { objectFit: r ? 'cover' : '', objectPosition: pos, transform: r ? `scale(${r.zoom})` : '', transformOrigin: pos });
+  });
   const z = moZoomAt(T.t), tr = moTransAt(T.t);
   const sc = (z ? z.s : 1) * (tr.style.scale || 1);
   wrap.style.transform = z ? `scale(${sc}) translate(${z.ox / sc}%, ${z.oy / sc}%)` : (sc !== 1 ? `scale(${sc})` : '');
@@ -458,11 +461,18 @@ function moBgRect(b, ar, W, H) {   // ca core.bg_rect
   const w = (b.fit === 'cover' ? Math.max(W, H / ar) : Math.min(W, H / ar)) * b.scale, h = w * ar;
   return { x: (W - w) / 2, y: b.y * H - h / 2, w, h };
 }
+const PIP_KF = ['w', 'x', 'y', 'fx', 'fy', 'zoom'];      // ce se poate anima la fereastra (forma nu)
+function moPipAt(pip, lt) {        // ca pipAt din Main.tsx: valorile ferestrei intre keyframes
+  const p = { ...PIP_DEFAULT, ...pip };
+  PIP_KF.forEach(f => { p[f] = moKeyAt(pip.keys, f, lt, p[f]); });
+  return p;
+}
 function moMainRect(t, W, H) {     // ca mainRect din Main.tsx: intrare / iesire lina de 0,35 s
   const o = T.ovs.find(x => x.fit === 'bg' && x.pip && t >= x.start && t < x.end); if (!o) return null;
   const d = Math.min(0.35, (o.end - o.start) / 3), k = MO_EASE(Math.min(1, (t - o.start) / d, (o.end - t) / d));
-  const p = moPipRect(o.pip, W, H), lerp = (a, b) => a + (b - a) * k;
-  return { x: lerp(0, p.x), y: lerp(0, p.y), w: lerp(W, p.w), h: lerp(H, p.h), r: lerp(0, p.r) };
+  const pip = moPipAt(o.pip, t - o.start), p = moPipRect(pip, W, H), lerp = (a, b) => a + (b - a) * k;
+  return { x: lerp(0, p.x), y: lerp(0, p.y), w: lerp(W, p.w), h: lerp(H, p.h), r: lerp(0, p.r),
+    fx: lerp(0.5, pip.fx), fy: lerp(0.5, pip.fy), zoom: lerp(1, pip.zoom) };
 }
 /* Doua playere: cel activ ruleaza bucata curenta, cel de rezerva sta deja pozitionat la inceputul
    urmatoarei bucati dupa o taietura. La taietura isi schimba rolurile -> fara pauza de cautare. */
@@ -582,24 +592,44 @@ function tlRestoreCut(k, only) {
   });
 }
 /* „🧍 Tu peste el”: fereastra in care apari tu peste fundal */
-const PIP_DEFAULT = { shape: 'rect', w: 0.62, x: 0.5, y: 0.74 };
+const PIP_DEFAULT = { shape: 'rect', w: 0.62, x: 0.5, y: 0.74, fx: 0.5, fy: 0.35, zoom: 1 };
 // poza intreaga; daca e mai lata decat ecranul, sta putin mai sus, ca fereastra ta sa incapa dedesubt
 const bgDefaultFor = o => ({ ...BG_DEFAULT, y: (o.ar || 1) < 16 / 9 ? 0.4 : 0.5 });
 function pipPanel(o) {
-  const p = o.pip || PIP_DEFAULT, sh = (k, l) => `<button class="tbtn ${p.shape === k ? 'on' : ''}" data-shape="${k}">${l}</button>`;
-  const sl = (k, l, min, max) => `<label>${l}</label><input type="range" data-pk="${k}" min="${min}" max="${max}" step="0.005" value="${p[k]}"><output data-po="${k}">${Math.round(p[k] * 100)}%</output>`;
+  const lt = clamp(T.t - o.start, 0, o.end - o.start);
+  const p = moPipAt(o.pip || PIP_DEFAULT, lt), keys = (o.pip && o.pip.keys) || [];
+  const sh = (k, l) => `<button class="tbtn ${p.shape === k ? 'on' : ''}" data-shape="${k}">${l}</button>`;
+  const sl = (k, l, min, max, fmt) => `<label>${l}</label><input type="range" data-pk="${k}" min="${min}" max="${max}" step="0.005" value="${p[k]}"><output data-po="${k}">${fmt(p[k])}</output>`;
+  const pc = v => Math.round(v * 100) + '%', zx = v => (+v).toFixed(2) + '×';
   const g = o.bgimg || BG_DEFAULT;
   const gsl = (k, l, min, max, fmt) => `<label>${l}</label><input type="range" data-gk="${k}" min="${min}" max="${max}" step="0.01" value="${g[k]}"><output data-go="${k}">${fmt(g[k])}</output>`;
   return `<div class="pipbox"><b>🖼 Poza din spate</b>
     <div class="row"><button class="tbtn ${g.fit === 'contain' ? 'on' : ''}" data-gfit="contain">Se vede toată</button>
       <button class="tbtn ${g.fit === 'cover' ? 'on' : ''}" data-gfit="cover">Umple ecranul</button>
       <label class="gcol">Culoare fundal <input type="color" id="gCol" value="${g.color}"></label></div>
-    <div class="kv">${gsl('scale', 'Mărime poză', 0.3, 2, v => Math.round(v * 100) + '%')}${gsl('y', 'Poziție verticală', 0, 1, v => Math.round(v * 100) + '%')}</div></div>
+    <div class="kv">${gsl('scale', 'Mărime poză', 0.3, 2, pc)}${gsl('y', 'Poziție verticală', 0, 1, pc)}</div></div>
     <div class="pipbox"><b>🧍 Fereastra ta</b><span class="sub2" style="margin:0">Poza / clipul e în spate, tu apari aici. Intră și iese lin.</span>
     <div class="row">${sh('rect', '▭ Dreptunghi')}${sh('circle', '● Cerc')}${sh('tall', '▯ Vertical')}</div>
     <div class="row"><button class="tbtn" data-ppos="0.5,0.74">⬇ Jos</button><button class="tbtn" data-ppos="0.3,0.76">↙ Stânga jos</button>
       <button class="tbtn" data-ppos="0.7,0.76">↘ Dreapta jos</button><button class="tbtn" data-ppos="0.5,0.28">⬆ Sus</button></div>
-    <div class="kv">${sl('w', 'Mărime', 0.2, 1)}${sl('x', 'Orizontal', 0, 1)}${sl('y', 'Vertical', 0, 1)}</div></div>`;
+    <div class="kv">${sl('w', 'Mărime', 0.2, 1, pc)}${sl('x', 'Orizontal', 0, 1, pc)}${sl('y', 'Vertical', 0, 1, pc)}</div>
+    <b style="margin-top:4px">Ce se vede din tine</b>
+    <div class="kv">${sl('zoom', 'Zoom pe tine', 1, 3, zx)}${sl('fx', 'Încadrare stânga ↔ dreapta', 0, 1, pc)}${sl('fy', 'Încadrare sus ↕ jos', 0, 1, pc)}</div>
+    <b style="margin-top:4px">◆ Keyframes ${keys.length ? `<span class="sub2" style="margin:0">(${keys.length})</span>` : ''}</b>
+    <span class="sub2" style="margin:0">${keys.length ? 'Mută cursorul și schimbă fereastra: se salvează în keyframe-ul de la cursor (se face unul nou dacă nu e). Între ele se mișcă lin.'
+      : 'Ca să te miști pe parcurs: pune un keyframe la început, mută cursorul, pune altul și schimbă poziția / mărimea / încadrarea.'}</span>
+    <div class="row"><button class="tbtn" id="pkAdd">◆ Keyframe la cursor (${fmtTC(T.t)})</button>${keys.length ? '<button class="tbtn" id="pkClear">Șterge toate</button>' : ''}</div>
+    ${keys.length ? `<div class="row pkl">${keys.map((k, i) => `<span class="pkc"><button class="btn sm" data-pkgo="${i}">◆ ${fmtTC(o.start + k.t)}</button><button class="btn sm" data-pkdel="${i}" title="Șterge keyframe-ul">✕</button></span>`).join('')}</div>` : ''}
+    </div>`;
+}
+// o schimbare a ferestrei: fara keyframes -> valoarea de baza; cu keyframes -> keyframe-ul de la cursor (il face daca lipseste)
+function pipSet(o, vals) {
+  const pip = o.pip, keys = pip.keys || [];
+  if (!keys.length) { Object.assign(pip, vals); return; }
+  const lt = +clamp(T.t - o.start, 0, o.end - o.start).toFixed(3);
+  let k = keys.find(x => Math.abs(x.t - lt) < 0.04);
+  if (!k) { const cur = moPipAt(pip, lt); k = { t: lt }; PIP_KF.forEach(f => { k[f] = +(+cur[f]).toFixed(4); }); keys.push(k); keys.sort((a, b) => a.t - b.t); }
+  Object.assign(k, vals);
 }
 function pipBind(p, o) {
   o.pip = o.pip || { ...PIP_DEFAULT };
@@ -616,13 +646,23 @@ function pipBind(p, o) {
     inp.onchange = () => { tlCommit(gprev || tlSnap()); gprev = null; };
   });
   p.querySelectorAll('[data-shape]').forEach(b => b.onclick = () => tlChange(() => { o.pip.shape = b.dataset.shape; }));
-  p.querySelectorAll('[data-ppos]').forEach(b => b.onclick = () => tlChange(() => { const [x, y] = b.dataset.ppos.split(',').map(Number); o.pip.x = x; o.pip.y = y; }));
+  p.querySelectorAll('[data-ppos]').forEach(b => b.onclick = () => tlChange(() => { const [x, y] = b.dataset.ppos.split(',').map(Number); pipSet(o, { x, y }); }));
   let prev = null;
   p.querySelectorAll('input[data-pk]').forEach(inp => {
+    const k = inp.dataset.pk;
     inp.onpointerdown = () => { prev = tlSnap(); };
-    inp.oninput = () => { o.pip[inp.dataset.pk] = +inp.value; p.querySelector(`[data-po="${inp.dataset.pk}"]`).textContent = Math.round(+inp.value * 100) + '%'; tlPaint(); };
-    inp.onchange = () => { tlCommit(prev || tlSnap()); prev = null; };
+    inp.oninput = () => { pipSet(o, { [k]: +inp.value }); p.querySelector(`[data-po="${k}"]`).textContent = k === 'zoom' ? (+inp.value).toFixed(2) + '×' : Math.round(+inp.value * 100) + '%'; tlPaint(); };
+    inp.onchange = () => { tlCommit(prev || tlSnap()); prev = null; tlInspector(); };
   });
+  $('#pkAdd', p).onclick = () => tlChange(() => {
+    const pip = o.pip, lt = +clamp(T.t - o.start, 0, o.end - o.start).toFixed(3), cur = moPipAt(pip, lt);
+    pip.keys = (pip.keys || []).filter(k => Math.abs(k.t - lt) >= 0.04);
+    const k = { t: lt }; PIP_KF.forEach(f => { k[f] = +(+cur[f]).toFixed(4); });
+    pip.keys.push(k); pip.keys.sort((a, b) => a.t - b.t);
+  });
+  const clr = $('#pkClear', p); if (clr) clr.onclick = () => tlChange(() => { const cur = moPipAt(o.pip, clamp(T.t - o.start, 0, o.end - o.start)); PIP_KF.forEach(f => { o.pip[f] = cur[f]; }); delete o.pip.keys; });
+  p.querySelectorAll('[data-pkgo]').forEach(b => b.onclick = () => { tlPause(); tlSeek(o.start + o.pip.keys[+b.dataset.pkgo].t + 0.001); tlInspector(); });
+  p.querySelectorAll('[data-pkdel]').forEach(b => b.onclick = () => tlChange(() => { o.pip.keys.splice(+b.dataset.pkdel, 1); if (!o.pip.keys.length) delete o.pip.keys; }));
 }
 function tlFreeLane(a, b) {
   for (let l = 0; l < 20; l++) if (!T.ovs.some(o => (o.lane || 0) === l && o.start < b && a < o.end)) return l;

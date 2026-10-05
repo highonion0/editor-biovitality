@@ -29,6 +29,9 @@ Selectezi o poză sau un clip din Timeline și apeși **🧍 Tu peste el**. Poza
 iar tu apari într-o fereastră: ▭ dreptunghi, ● cerc sau ▯ vertical, cu mărimea și poziția alese. Fereastra intră și iese lin.
 La **🖼 Poza din spate** alegi: **Se vede toată** (implicit) sau **Umple ecranul**, mărimea și poziția pozei,
 plus **culoarea fundalului** (negru implicit), care se vede unde poza nu ajunge.
+La **Ce se vede din tine**: **Zoom pe tine** și **Încadrare** (stânga ↔ dreapta, sus ↕ jos) aleg ce parte din video-ul tău apare în fereastră.
+**◆ Keyframes**: pui un keyframe, muți cursorul, pui altul și schimbi poziția / mărimea / încadrarea — fereastra se mișcă lin între ele
+(animația merge cu motorul Remotion; motorul clasic folosește poziția de la primul keyframe).
 Varianta cu tine **decupat** de fundal (ca efectul green screen de pe TikTok) vine cu „scoaterea fundalului” (punctul 1 din listă).
 
 ## 📚 Biblioteca ta (tabul „📚 Bibliotecă”)
