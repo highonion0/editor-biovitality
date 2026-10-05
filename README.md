@@ -45,6 +45,14 @@ Fără instalare, la randare apari într-o fereastră verticală. (Licența mode
 - Dă fișierelor nume care spun ce e în ele. După nume le găsește și Claude, care le propune în „💡 Propuneri” înainte de B-roll-ul de generat.
 - **♪ Sunete:** biblioteca de efecte sonore, ca înainte.
 
+## Tai eu sau taie aplicația?
+- **La încărcare**, pe ecranul de pregătire: comutatorul **„✂ Taie automat pauzele”**. Pornit = ca până acum (pauze + reluări după script).
+  Oprit = video-ul rămâne **întreg**; se face doar transcrierea (cu textul din script, dacă ai pus), iar tu editezi în Timeline.
+- **În Timeline**, butonul **„⏸✂ Taie pauzele”** le taie automat doar unde alegi:
+  **în bucata selectată**, **în intervalul marcat** (tasta **I** = început, **O** = sfârșit, la cursor; Esc îl șterge) sau **în tot video-ul**.
+  Folosește „Respiro la tăieturi” din stânga. Pozele, graficele, zoom-urile și sunetele rămân pe aceleași vorbe. Ctrl+Z anulează.
+  Același buton e și în Proprietăți când selectezi o bucată.
+
 ## Video-uri lungi (10 minute sau mai mult)
 Merg. Un video de 10 minute, cu ~150 de bucăți după tăierea pauzelor, se lipește folosind cam 2 GB de memorie.
 Durează mai mult decât un video scurt: transcrierea, randarea și propunerile lui Claude cresc odată cu durata.

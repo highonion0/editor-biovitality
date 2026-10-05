@@ -399,7 +399,7 @@ const ICON = {
 
 /* ------------------------------------------------ setari */
 const DEFAULTS = { language: 'ro', quality: 'rapid', cut: 'normala', margin: 0.2, margin_after: null, words_per_caption: 5, burn_captions: true, vocabulary: 'BioVitality',
-  auto_start: false, script_retakes: true, script_offscript: true, script_captions: true };
+  auto_start: false, autocut: true, script_retakes: true, script_offscript: true, script_captions: true };
 function loadSettings() { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('bv-settings') || '{}') }; } catch { return { ...DEFAULTS }; } }
 function saveSettings() { try { localStorage.setItem('bv-settings', JSON.stringify(S.settings)); } catch {} }
 
@@ -784,6 +784,7 @@ function buildDraft(j) {
       <div class="card">
         <div class="chead"><h3>Script <span class="count">opțional</span></h3><span class="count" id="dCount">${draftCount(txt)}</span></div>
         <div class="dbody2">
+          ${tog('autocut', '✂ Taie automat pauzele', 'Oprit = video-ul rămâne întreg și îl editezi tu în Timeline (acolo poți tăia pauzele doar unde vrei)')}
           <textarea id="dScript" placeholder="Lipește aici scriptul video-ului.&#10;&#10;Programul îl folosește ca să scoată reluările și ce ai spus în afara lui, iar subtitrările vor avea exact textul tău.&#10;&#10;Fără script: tai doar pauzele și transcriu ce ai spus."></textarea>
           <div class="dopts ${txt.trim() ? '' : 'off'}" id="dOpts">
             ${tog('script_retakes', 'Scoate reluările', 'Dacă ai spus o frază de mai multe ori, păstrez ultima variantă')}
@@ -1332,7 +1333,9 @@ window.addEventListener('drop', e => {
 
 renderQuick();
 renderAll();
-connect();
+// ma conectez abia dupa ce s-au incarcat si celelalte scripturi (timeline, materiale...): altfel primul mesaj
+// de la server poate desena un ecran care foloseste functii inca necitite si ramane gol
+document.addEventListener('DOMContentLoaded', connect);
 </script>
 <script src="/static/graphics.js"></script>
 <script src="/static/timeline.js"></script>

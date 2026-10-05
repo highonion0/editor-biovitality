@@ -138,6 +138,10 @@ function buildTimeline() {
         <button class="tbtn" id="tZoom" title="Zoom pe video la cursor (punch-in)">🔍 Zoom</button>
         <button class="tbtn" id="tSlot" title="Rezervă un loc pentru un clip generat în DaVinci">⬚ Loc B-roll</button>
         <button class="tbtn" id="tSplit" title="Taie bucata la cursor (S)">✂ Taie la cursor</button>
+        <span class="gmenu"><button class="tbtn" id="tPauses" title="Taie automat pauzele doar unde alegi tu">⏸✂ Taie pauzele</button><div class="gdrop" id="tPauseMenu" hidden>
+          <button data-pz="clip"><b>În bucata selectată</b><small>Selectează întâi o bucată pe pista video</small></button>
+          <button data-pz="range"><b>În intervalul marcat</b><small>Tasta I = început, O = sfârșit, la cursor</small></button>
+          <button data-pz="all"><b>În tot video-ul</b><small>Ca la încărcare, cu „Respiro la tăieturi” din stânga</small></button></div></span>
         <button class="tbtn" id="tDel" title="Șterge ce e selectat (Delete)">🗑 Șterge</button>
         <span class="sp"></span>
         <span class="zoom">Zoom <input type="range" id="tZoom" min="1" max="30" step="0.5" value="${T.zoom}"></span>
@@ -163,6 +167,9 @@ function buildTimeline() {
   $('#tTabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; T.tab = b.dataset.t; tlTabs(); };
   $('#tPick').onchange = e => { tlAddFiles([...e.target.files]); e.target.value = ''; };
   $('#tSplit').onclick = tlSplit;
+  $('#tPauses').onclick = e => { e.stopPropagation(); const m = $('#tPauseMenu'); m.hidden = !m.hidden; pzMenuState(); };
+  $('#tPauseMenu').onclick = e => { const b = e.target.closest('[data-pz]'); if (!b || b.disabled) return; $('#tPauseMenu').hidden = true; pzRun(b.dataset.pz); };
+  document.addEventListener('click', e => { const m = $('#tPauseMenu'); if (m && !m.hidden && !e.target.closest('#tPauseMenu')) m.hidden = true; });
   $('#tSlot').onclick = () => tlAddSlot({ start: T.t, end: T.t + 4, idea: '', prompt: '' }, true);
   $('#tZoom').onclick = () => moAddZoom();
   $('#tDel').onclick = tlDelete;
@@ -266,6 +273,8 @@ function tlRender(fit) {
     });
     html += `</div>`;
   }
+  if (T.range) { const a = Math.min(T.range.a, T.range.b ?? T.range.a), b = Math.max(T.range.a, T.range.b ?? T.range.a);
+    html += `<div class="trange" style="left:${xOf(a)}px;width:${Math.max(2, (b - a) * T.pps)}px" title="Interval marcat (I / O) · Esc = șterge"></div>`; }
   html += `<div class="tphead" id="tPhead"></div>`;
   const inner = $('#tInner'); inner.style.width = W + 'px'; inner.innerHTML = html;
   if (center != null) sc.scrollLeft = Math.max(0, xOf(center) - sc.clientWidth / 2);
@@ -607,6 +616,39 @@ function tlRestoreCut(k, only) {
     T.sel = null;
   });
 }
+/* „⏸✂ Taie pauzele” doar unde alegi: o bucata, intervalul marcat cu I / O sau tot video-ul */
+function pzMenuState() {
+  const m = $('#tPauseMenu'); if (!m) return;
+  m.querySelector('[data-pz="clip"]').disabled = !(T.sel && T.sel.kind === 'clip' && T.segs[T.sel.i]);
+  m.querySelector('[data-pz="range"]').disabled = !(T.range && T.range.b != null && Math.abs(T.range.b - T.range.a) > 0.2);
+}
+function pzRun(kind) {
+  const starts = tlStarts();
+  if (kind === 'clip' && T.sel && T.sel.kind === 'clip') { const i = T.sel.i; tlAutoCut(starts[i], starts[i] + T.segs[i][1] - T.segs[i][0], 'în bucata selectată'); }
+  else if (kind === 'range' && T.range && T.range.b != null) tlAutoCut(Math.min(T.range.a, T.range.b), Math.max(T.range.a, T.range.b), 'în interval');
+  else if (kind === 'all') tlAutoCut(0, tlTotal(), 'în tot video-ul');
+}
+// dupa o taiere: pozele, graficele, zoom-urile si sunetele raman pe aceleasi vorbe (timp final vechi -> sursa -> timp final nou)
+function tlRemapItems(oldSegs, newSegs) {
+  const map = t => { const keep = T.segs; T.segs = oldSegs; const m = tlOutToSrc(t); T.segs = newSegs; const n = tlSrcToOut(m.src); T.segs = keep; return n; };
+  const total = newSegs.reduce((n, s) => n + s[1] - s[0], 0);
+  [T.ovs, T.auds, T.zooms || []].forEach(list => list.forEach(it => {
+    const s = map(it.start), e = Math.max(s + 0.2, map(Math.max(it.start, it.end - 0.001)));
+    it.start = +Math.min(s, Math.max(0, total - 0.2)).toFixed(3); it.end = +Math.min(total, e).toFixed(3);
+  }));
+}
+async function tlAutoCut(a, b, where) {
+  toast('Caut pauzele… (prima dată durează puțin)');
+  const r = await fetch(`/api/autocut/${T.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ segments: T.segs, start: a, end: b, settings: { cut: S.settings.cut, margin: S.settings.margin, margin_after: S.settings.margin_after } }) })
+    .then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+  if (r.error) { toast(r.error); return; }
+  if (!r.removed || r.removed < 0.05) { toast(`N-am găsit pauze de tăiat ${where}.`); return; }
+  const old = deep(T.segs);
+  tlChange(() => { tlRemapItems(old, r.segments); T.segs = r.segments; T.sel = null; T.range = null; });
+  toast(`Am tăiat ${fmtS(r.removed)} de pauze ${where}. Ctrl+Z anulează.`);
+}
+
 /* „🧍 Tu peste el”: fereastra in care apari tu peste fundal */
 const PIP_DEFAULT = { shape: 'rect', w: 0.62, x: 0.5, y: 0.74, fx: 0.5, fy: 0.35, zoom: 1 };
 // poza intreaga; daca e mai lata decat ecranul, sta putin mai sus, ca fereastra ta sa incapa dedesubt
@@ -1103,7 +1145,8 @@ function tlInspector() {
         Trage de mijlocul ei ca s-o muți în altă parte a video-ului.</div>
       <div class="kv"><label>Început</label><input class="tnum" id="iA" value="${s[0].toFixed(2)}"><span></span>
         <label>Sfârșit</label><input class="tnum" id="iB" value="${s[1].toFixed(2)}"><span></span></div>
-      <div class="row"><button class="tbtn" id="iSplit">✂ Taie la cursor</button><button class="tbtn" id="iDel">🗑 Șterge bucata</button></div>
+      <div class="row"><button class="tbtn" id="iSplit">✂ Taie la cursor</button><button class="tbtn" id="iDel">🗑 Șterge bucata</button>
+        <button class="tbtn" id="iPauses" title="Taie automat pauzele doar din bucata asta">⏸✂ Taie pauzele din ea</button></div>
       <div class="row"><button class="tbtn" id="iEarly" ${sel.i ? '' : 'disabled'}>◀ Mută mai devreme</button>
         <button class="tbtn" id="iLate" ${sel.i + 1 < T.segs.length ? '' : 'disabled'}>Mută mai târziu ▶</button></div>`;
     const setEdge = (ix, v) => tlChange(() => {
@@ -1114,7 +1157,7 @@ function tlInspector() {
     });
     $('#iA').onchange = e => setEdge(0, e.target.value);
     $('#iB').onchange = e => setEdge(1, e.target.value);
-    $('#iSplit').onclick = tlSplit; $('#iDel').onclick = tlDelete;
+    $('#iSplit').onclick = tlSplit; $('#iDel').onclick = tlDelete; $('#iPauses').onclick = () => pzRun('clip');
     $('#iEarly').onclick = () => tlMoveSeg(sel.i, sel.i - 1);
     $('#iLate').onclick = () => tlMoveSeg(sel.i, sel.i + 1);
   } else if (sel && sel.kind === 'zoom' && T.zooms[sel.i]) {
@@ -1398,13 +1441,18 @@ document.addEventListener('keydown', e => {
   else if (mod && k === 'v') { if (tlPasteAt(T.t)) e.preventDefault(); }
   else if (mod && k === 'd') { e.preventDefault(); if (tlCopy()) { const it = T.clip.item; tlPasteAt(it.end); } }
   else if (!mod && k === 's') { e.preventDefault(); tlSplit(); }
+  else if (!mod && (k === 'i' || k === 'o')) {               // intervalul pentru „Taie pauzele”
+    e.preventDefault(); const t = +T.t.toFixed(3);
+    T.range = k === 'i' ? { a: t, b: T.range && T.range.b != null && T.range.b > t ? T.range.b : null } : { a: T.range ? T.range.a : 0, b: t };
+    tlRender(); toast(k === 'i' ? `Început interval: ${fmtTC(t)} · acum O la sfârșit` : `Interval: ${fmtTC(Math.min(T.range.a, t))} – ${fmtTC(Math.max(T.range.a, t))} · „⏸✂ Taie pauzele” → În intervalul marcat`);
+  }
   else if (!mod && k === 'z') { e.preventDefault(); moAddZoom(); }
   else if ((k === 'delete' || k === 'backspace') && T.tab === 'cap' && TC.sel.size) { e.preventDefault(); tcDeleteWords(); }
   else if (k === 'delete' || k === 'backspace') { e.preventDefault(); tlDelete(); }
   else if (e.altKey && (k === 'arrowleft' || k === 'arrowright') && T.sel && T.sel.kind === 'clip') { e.preventDefault(); tlMoveSeg(T.sel.i, T.sel.i + (k === 'arrowleft' ? -1 : 1)); }
   else if (k === 'arrowleft' || k === 'arrowright') { e.preventDefault(); tlPause(); tlSeek(T.t + (k === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 1 : 1 / T.pr.fps)); }
   else if (k === 'home') { e.preventDefault(); tlSeek(0); }
-  else if (k === 'escape') { T.sel = null; tlRender(); tlInspector(); tlPaint(); }
+  else if (k === 'escape') { T.sel = null; T.range = null; tlRender(); tlInspector(); tlPaint(); }
 });
 
 async function tlSave() {

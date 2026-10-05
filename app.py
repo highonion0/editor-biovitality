@@ -1037,6 +1037,25 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError, RuntimeError) as e:
                 return self._json({"error": str(e) if isinstance(e, RuntimeError) else "Date invalide."}, 400)
             return self._json({**script_view(pr), "segments": pr["segments"], "captions": pr.get("captions")})
+        if len(parts) == 3 and parts[:2] == ["api", "autocut"]:
+            # taie automat pauzele doar unde alegi (o bucata, un interval sau tot video-ul)
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            pr = core.load_project(job["dir"])
+            try:
+                segs = [[float(a), float(b)] for a, b in body.get("segments") or pr["segments"]]
+                a, b = float(body.get("start", 0)), float(body.get("end", 1e9))
+                cfg = core.merge_settings({**(pr.get("settings") or {}), **(body.get("settings") or {})})
+                speech = core.speech_segments(job["dir"], pr, cfg)
+            except (TypeError, ValueError):
+                return self._json({"error": "Date invalide."}, 400)
+            except Exception as e:
+                traceback.print_exc()
+                return self._json({"error": f"Nu am putut găsi pauzele: {str(e)[:200]}"}, 500)
+            new = core.cut_pauses(segs, a, b, speech)
+            return self._json({"segments": new, "removed": round(core.seg_total(segs) - core.seg_total(new), 2)})
         if len(parts) == 3 and parts[:2] == ["api", "cutout"]:
             # clipul cu tine decupat pentru o portiune (make = il face acum; altfel spune doar daca e gata)
             import cutout

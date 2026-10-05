@@ -369,3 +369,5 @@
 .sctake.on{border-color:var(--honey);background:var(--honeySoft);color:var(--honey);font-weight:700;cursor:default}
 .scplay{width:22px;height:22px;border-radius:6px;border:0;background:var(--panel2);color:var(--text);font-size:10px;cursor:pointer}
 .scplay.on{background:var(--honey);color:#241706}
+.trange{position:absolute;top:0;bottom:0;background:rgba(232,168,59,.13);border-left:2px solid var(--honey);border-right:2px solid var(--honey);pointer-events:none;z-index:4}
+.gdrop button:disabled{opacity:.45;cursor:not-allowed}

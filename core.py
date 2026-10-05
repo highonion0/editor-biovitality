@@ -54,6 +54,7 @@ DEFAULTS = {
     "burn_captions": True,
     "vocabulary": "BioVitality",
     "auto_start": False,       # False = dupa incarcare astept scriptul si butonul „Porneste”
+    "autocut": True,           # False = nu tai nimic la procesare (video-ul ramane intreg, il editezi tu in Timeline)
     "script": "",
     "script_captions": True,   # subtitrarile iau textul exact din script
     "script_retakes": True,    # scot reluarile, pastrez ultima dubla
@@ -333,7 +334,7 @@ def merge_settings(raw):
     if "burn_captions" in raw: cfg["burn_captions"] = bool(raw["burn_captions"])
     if isinstance(raw.get("vocabulary"), str): cfg["vocabulary"] = raw["vocabulary"][:300]
     if isinstance(raw.get("script"), str): cfg["script"] = raw["script"].strip()[:30000]
-    for k in ("auto_start", "script_captions", "script_retakes", "script_offscript"):
+    for k in ("auto_start", "autocut", "script_captions", "script_retakes", "script_offscript"):
         if isinstance(raw.get(k), bool): cfg[k] = raw[k]
     return cfg
 
@@ -353,7 +354,8 @@ def margin_label(cfg):
     return f"respiro {_fmt_sec(a)} / {_fmt_sec(b)}"
 
 def settings_summary(cfg):
-    parts = [LANG_NAMES[cfg["language"]], QUALITY_NAMES[cfg["quality"]], margin_label(cfg)]
+    parts = [LANG_NAMES[cfg["language"]], QUALITY_NAMES[cfg["quality"]],
+             margin_label(cfg) if cfg.get("autocut", True) else "fără tăiere automată"]
     if not cfg["burn_captions"]: parts.append("fără text ars")
     if cfg.get("script"): parts.append("după script")
     return " · ".join(parts)
@@ -1103,6 +1105,46 @@ def waveform(job_dir, project):
             data["peaks"] = np.clip(peaks * 255 // top, 0, 255).astype(int).tolist()
     f.write_text(json.dumps(data), encoding="utf-8")
     return data
+
+def speech_segments(job_dir, project, cfg):
+    """Unde vorbesti in sursa (fara pauze), cu sensibilitatea si respiro-ul din setari. Se calculeaza o data si se pastreaza."""
+    import hashlib
+    job_dir = Path(job_dir)
+    key = hashlib.md5(json.dumps([cfg["cut"], cfg["margin"], cfg["margin_after"]]).encode()).hexdigest()[:8]
+    f = job_dir / f"_vorba_{key}.json"
+    src = project_source(job_dir, project)
+    if f.exists() and f.stat().st_mtime >= src.stat().st_mtime:
+        return json.loads(f.read_text(encoding="utf-8"))
+    segs = analyze_segments(src, job_dir, cfg, lambda e: None)
+    f.write_text(json.dumps(segs), encoding="utf-8")
+    return segs
+
+def cut_pauses(segs, start, end, speech):
+    """Taie pauzele doar in intervalul [start, end] de pe timeline-ul final; restul ramane cum e (si in aceeasi ordine)."""
+    out, acc = [], 0.0
+    for a, b in segs:
+        d = b - a
+        x, y = max(start, acc), min(end, acc + d)
+        if y - x <= 0.01:
+            out.append([a, b])
+        else:
+            sx, sy = a + (x - acc), a + (y - acc)          # portiunea din sursa care cade in interval
+            if sx - a > 0.04:
+                out.append([a, round(sx, 3)])
+            for c, e in speech:
+                p, q = max(sx, c), min(sy, e)
+                if q - p > 0.04:
+                    out.append([round(p, 3), round(q, 3)])
+            if b - sy > 0.04:
+                out.append([round(sy, 3), b])
+        acc += d
+    merged = []
+    for a, b in out:                                    # bucatile lipite in sursa devin una
+        if merged and abs(a - merged[-1][1]) <= 1e-3:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    return merged or segs
 
 def apply_timeline(job_dir, payload, report):
     """Salveaza taieturile si suprapunerile editate, apoi reface copia taiata."""
@@ -2194,7 +2236,12 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         report({"type": "log", "msg": f"Video-ul are etichetă de rotație ({probe_rotation(video)}°) — îl îndrept întâi, ca să nu iasă culcat."})
         src = job_dir / "sursa.mp4"
         encode(video, src, None, str(job_dir), report, 1, "Îndrept video-ul")
-    segs = analyze_segments(src, job_dir, cfg, report)
+    if cfg.get("autocut", True):
+        segs = analyze_segments(src, job_dir, cfg, report)
+    else:                                   # „editez eu”: video-ul ramane intreg; scriptul doar pentru textul subtitrarilor
+        segs = [[0.0, round(probe_duration(src), 3)]]
+        cfg = {**cfg, "script_retakes": False, "script_offscript": False}
+        report({"type": "log", "msg": "Fără tăiere automată: video-ul rămâne întreg. Îl editezi în Timeline (acolo poți tăia pauzele unde vrei)."})
     cut = job_dir / "video_taiat.mp4"
     look0 = load_default_look()
     try:
