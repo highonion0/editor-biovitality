@@ -42,7 +42,8 @@ STATIC_FILES = {"timeline.js": "text/javascript; charset=utf-8", "timeline.css":
                 "graphics.js": "text/javascript; charset=utf-8", "assistant.js": "text/javascript; charset=utf-8",
                 "sounds.js": "text/javascript; charset=utf-8", "look.js": "text/javascript; charset=utf-8", "safezones.js": "text/javascript; charset=utf-8", "motion.js": "text/javascript; charset=utf-8", "proposals.js": "text/javascript; charset=utf-8",
                 "captions_tl.js": "text/javascript; charset=utf-8", "publish.js": "text/javascript; charset=utf-8",
-                "library.js": "text/javascript; charset=utf-8", "materials.js": "text/javascript; charset=utf-8"}
+                "library.js": "text/javascript; charset=utf-8", "materials.js": "text/javascript; charset=utf-8",
+                "script_tab.js": "text/javascript; charset=utf-8"}
 APP_ID = "biovitality-editor"
 CHUNK = 16 * 1024 * 1024
 BASE_PORT = 8765
@@ -266,6 +267,20 @@ def clean_materials(job, raw):
                         "mode": m.get("mode") if m.get("mode") in core.MATERIAL_MODES else "small",
                         "where": str(m.get("where") or "").strip()[:200]})
     return out
+
+def script_view(pr):
+    """Pentru tabul „📜 Script”: frazele, dublele gasite (timp in sursa, textul spus) si care e aleasa."""
+    info = pr.get("script_align")
+    if not info:
+        return {"units": []}
+    words = info["words"]
+    units = []
+    for k, u in enumerate(info["units"]):
+        units.append({"text": " ".join(u), "chosen": info["chosen"].get(str(k)),
+                      "takes": [{"a": words[c["s"]][0], "b": words[c["e"]][1], "score": round(c["score"], 2),
+                                 "quiet": bool(c.get("quiet")), "said": " ".join(w[2] for w in words[c["s"]:c["e"] + 1])}
+                                for c in info["takes"][k]]})
+    return {"units": units}
 
 def put_materials(job, project):
     """Dupa transcriere, inainte de randare: copiaza materialele in proiect si le pune pe timeline."""
@@ -676,6 +691,11 @@ class Handler(BaseHTTPRequestHandler):
                         "look_presets": core.COLOR_PRESETS, "look_default": core.load_default_look(),
                         "source": f"/media/{job['id']}/source", "asset_base": f"/asset/{job['id']}",
                         "assets": assets, "busy": job["status"] in ("running", "queued")})
+        elif len(parts) == 3 and parts[:2] == ["api", "script"]:
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            self._json(script_view(core.load_project(job["dir"])))
         elif path == "/api/cutout-status":
             import cutout
             self._json(cutout.status())
@@ -1001,6 +1021,22 @@ class Handler(BaseHTTPRequestHandler):
             pack = assistant.save_pack(job["dir"], body.get("pack"), job["name"])
             job["files"]["pack"] = "publicare.txt"
             return self._json({"pack": pack})
+        if len(parts) == 3 and parts[:2] == ["api", "script"]:
+            # alegi alta dubla pentru o fraza din script (sau o scoti): bucatile si subtitrarile noi merg in Timeline
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            pr = core.load_project(job["dir"])
+            if isinstance(body.get("chosen"), list) and pr.get("script_align"):    # alegerea curenta din Timeline (nesalvata)
+                pr["script_align"]["chosen"] = {str(i): v for i, v in enumerate(body["chosen"]) if isinstance(v, int)}
+            try:
+                k = int(body.get("unit"))
+                idx = None if body.get("take") is None else int(body.get("take"))
+                pr = core.script_choose(pr, k, idx)
+            except (TypeError, ValueError, RuntimeError) as e:
+                return self._json({"error": str(e) if isinstance(e, RuntimeError) else "Date invalide."}, 400)
+            return self._json({**script_view(pr), "segments": pr["segments"], "captions": pr.get("captions")})
         if len(parts) == 3 and parts[:2] == ["api", "cutout"]:
             # clipul cu tine decupat pentru o portiune (make = il face acum; altfel spune doar daca e gata)
             import cutout

@@ -355,3 +355,17 @@
 .pvis{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid rgba(232,168,59,.35);border-radius:11px}
 .pvis summary{cursor:pointer;font-size:13px}
 .pvis textarea{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line2);border-radius:9px;color:var(--text);font:inherit;font-size:13px;padding:8px 10px;resize:vertical;margin-top:6px}
+/* tabul Script: frazele si dublele lor */
+.scbox{display:flex;flex-direction:column;gap:10px}
+.scu{display:flex;flex-direction:column;gap:6px;padding:9px 11px;border:1px solid var(--line);border-radius:11px}
+.scu.miss{border-color:rgba(226,122,100,.45)}
+.scuh{display:flex;gap:9px;align-items:flex-start}
+.scn{min-width:22px;height:22px;border-radius:50%;background:var(--panel2);display:grid;place-items:center;font-size:11px;font-weight:800}
+.sct{font-size:13px;line-height:1.4}
+.sctk{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sctake{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px 0 3px;border-radius:8px;border:1px solid var(--line2);
+  background:var(--panel);font-size:12px;cursor:pointer;color:var(--muted)}
+.sctake:hover{border-color:var(--honey)}
+.sctake.on{border-color:var(--honey);background:var(--honeySoft);color:var(--honey);font-weight:700;cursor:default}
+.scplay{width:22px;height:22px;border-radius:6px;border:0;background:var(--panel2);color:var(--text);font-size:10px;cursor:pointer}
+.scplay.on{background:var(--honey);color:#241706}

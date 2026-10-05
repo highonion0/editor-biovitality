@@ -1115,6 +1115,9 @@ def apply_timeline(job_dir, payload, report):
         raise RuntimeError("Timeline-ul nu mai are nicio bucată video.")
     pr["segments"] = segs
     pr["overlays"] = clean_overlays(payload.get("overlays"), seg_total(segs), job_dir / ASSETS)
+    sc = payload.get("script_chosen")
+    if isinstance(sc, list) and pr.get("script_align"):  # dublele alese in tabul „📜 Script”
+        pr["script_align"]["chosen"] = {str(i): v for i, v in enumerate(sc) if isinstance(v, int)}
     if pr.get("materials_pending"):                     # materialele puse intre timp nu mai sunt „de pus”
         pr["materials_pending"] = [a for a in pr["materials_pending"] if not any(o.get("asset") == a for o in pr["overlays"])]
     pr["audio"] = clean_audio(payload.get("audio"), seg_total(segs), job_dir / ASSETS)
@@ -2080,22 +2083,26 @@ def place_materials(project, items, claude_spots=None):
     return pending
 
 # ------------------------------------------------------------ dupa script
-def apply_script(script, words, segs, cfg, report):
-    """Potriveste transcrierea cu scriptul: scoate reluarile / ce nu e in script,
-    iar subtitrarile iau textul din script. Intoarce (bucati noi, cuvinte pentru subtitrari)."""
-    import script_align as sa
-    report({"type": "stage_detail", "n": 2, "detail": "Potrivesc cu scriptul…"})
-    al = sa.align(script, words)
-    n_units, n_found = len(al["units"]), len(al["chosen"])
-    base = segs
-    trusted = n_units and n_found / n_units >= 0.5
-    if not n_found:
-        report({"type": "log", "msg": "Scriptul nu seamănă cu ce ai spus în video — am tăiat doar pauzele și am păstrat transcrierea."})
-        return segs, words, "Scriptul nu s-a potrivit · doar pauze"
-    if not trusted:
-        report({"type": "log", "msg": f"Am regăsit doar {n_found} din {n_units} fraze din script — nu tai ce e în afara lui, ca să nu pierzi material."})
+def _loudness_fn(src):
+    """Cat de tare vorbesti intr-un interval (RMS pe sunetul sursei, 8 kHz mono). None daca nu se poate citi."""
+    try:
+        import numpy as np
+        r = subprocess.run([find_tool("ffmpeg"), "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-ar", "8000",
+                            "-f", "s16le", "-"], capture_output=True, creationflags=NO_WINDOW)
+        pcm = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32)
+    except Exception:
+        return None
+    if not len(pcm):
+        return None
+    def loud(a, b):
+        x = pcm[max(0, int(a * 8000)): max(0, int(b * 8000))]
+        return float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
+    return loud
+
+def _script_result(sa, al, words, base, cfg, keep_mode):
+    """Bucatile si cuvintele pentru subtitrari, din dublele alese (folosit la procesare si cand alegi alta dubla)."""
     a, b = cfg["margin"], cfg["margin_after"] if cfg["margin_after"] is not None else cfg["margin"]
-    keep_mode = bool(cfg.get("script_offscript") and trusted)
+    segs = base
     if keep_mode:
         # doar dublele alese, in ORDINEA DIN SCRIPT (chiar daca le-ai filmat in alta ordine)
         segs = []
@@ -2105,17 +2112,72 @@ def apply_script(script, words, segs, cfg, report):
         segs = sa.subtract(base, sa.span_intervals(al["retake"], words))
     if not segs:
         segs = base
-    removed = seg_total(base) - seg_total(segs)
-    n_retakes = sum(1 for k, t in enumerate(al["all_takes"]) for c in t if al["chosen"].get(k) is not c)
-    report({"type": "log", "msg": f"Script: am regăsit {n_found} din {n_units} fraze · {n_retakes} reluări · "
-                                  f"am scos încă {removed:.1f} s față de tăierea pauzelor."})
-    summary = f"Script: {n_found}/{n_units} fraze · {n_retakes} reluări · −{removed:.1f} s"
-    report({"type": "stage_detail", "n": 2, "detail": summary})
     if cfg.get("script_captions"):
         # cand pastrez doar dublele alese, restul vorbelor e taiat oricum: nu le amestec in subtitrari
         extra = [] if keep_mode else [w_ for i, w_ in enumerate(words) if i not in al["used"] and i not in al["retake"]]
         words = sorted(sa.script_words(al, words) + extra)
-    return segs, words, summary
+    return segs, words
+
+def apply_script(script, words, segs, cfg, report, src=None):
+    """Potriveste transcrierea cu scriptul: scoate reluarile / ce nu e in script,
+    iar subtitrarile iau textul din script. Intoarce (bucati noi, cuvinte pentru subtitrari, rezumat, potrivirea salvata)."""
+    import script_align as sa
+    report({"type": "stage_detail", "n": 2, "detail": "Potrivesc cu scriptul…"})
+    al = sa.align(script, words, _loudness_fn(src) if src else None)
+    n_units, n_found = len(al["units"]), len(al["chosen"])
+    base = segs
+    trusted = n_units and n_found / n_units >= 0.5
+    if not n_found:
+        report({"type": "log", "msg": "Scriptul nu seamănă cu ce ai spus în video — am tăiat doar pauzele și am păstrat transcrierea."})
+        return segs, words, "Scriptul nu s-a potrivit · doar pauze", None
+    if not trusted:
+        report({"type": "log", "msg": f"Am regăsit doar {n_found} din {n_units} fraze din script — nu tai ce e în afara lui, ca să nu pierzi material."})
+    keep_mode = bool(cfg.get("script_offscript") and trusted)
+    segs, words_out = _script_result(sa, al, words, base, cfg, keep_mode)
+    removed = seg_total(base) - seg_total(segs)
+    n_retakes = sum(1 for k, t in enumerate(al["all_takes"]) for c in t if al["chosen"].get(k) is not c)
+    n_quiet = sum(1 for t in al["all_takes"] for c in t if c.get("quiet"))
+    report({"type": "log", "msg": f"Script: am regăsit {n_found} din {n_units} fraze · {n_retakes} reluări"
+                                  + (f" ({n_quiet} spuse încet, citite de pe ecran)" if n_quiet else "")
+                                  + f" · am scos încă {removed:.1f} s față de tăierea pauzelor."})
+    summary = f"Script: {n_found}/{n_units} fraze · {n_retakes} reluări · −{removed:.1f} s"
+    report({"type": "stage_detail", "n": 2, "detail": summary})
+    # potrivirea ramane in proiect: tabul „📜 Script” iti arata dublele si poti alege alta
+    info = {"units": al["units"], "takes": al["all_takes"], "base": base, "keep": keep_mode,
+            "chosen": {str(k): next(i for i, c in enumerate(al["all_takes"][k]) if c is ch) for k, ch in al["chosen"].items()},
+            "words": [list(w_) for w_ in words]}
+    return segs, words_out, summary, info
+
+def script_choose(project, k, idx):
+    """Alegi alta dubla pentru fraza k (idx = None -> fraza scoasa). Reface bucatile si subtitrarile."""
+    import script_align as sa
+    info = project.get("script_align")
+    if not info:
+        raise RuntimeError("Video-ul acesta n-a fost procesat cu script.")
+    takes = info["takes"]
+    if not (0 <= k < len(takes)) or (idx is not None and not (0 <= idx < len(takes[k]))):
+        raise RuntimeError("Dublă necunoscută.")
+    chosen = {int(kk): v for kk, v in info["chosen"].items()}
+    if idx is None:
+        chosen.pop(k, None)
+    else:
+        c = takes[k][idx]
+        for kk, v in list(chosen.items()):              # o dubla nu poate fi folosita de doua fraze
+            o = takes[kk][v]
+            if kk != k and not (c["e"] < o["s"] or c["s"] > o["e"]):
+                chosen.pop(kk)
+        chosen[k] = idx
+    words = [tuple(w) for w in info["words"]]
+    al = sa.finish({"units": info["units"], "all_takes": takes, "chosen": {kk: takes[kk][v] for kk, v in chosen.items()}})
+    cfg = merge_settings(project.get("settings") or {})
+    segs, words_out = _script_result(sa, al, words, info["base"], cfg, info.get("keep", True))
+    info["chosen"] = {str(kk): v for kk, v in chosen.items()}
+    project["segments"] = segs
+    if (project.get("captions") or {}).get("style"):
+        inside = lambda t: any(a <= t <= b for a, b in segs)
+        ws = [w_ for w_ in words_out if inside((w_[0] + w_[1]) / 2)]
+        project["captions"] = build_captions(chunk_words(ws, cfg["words_per_caption"]), project["captions"]["style"])
+    return project
 
 
 # ------------------------------------------------------------ totul
@@ -2163,8 +2225,10 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
     # 2) transcriu SURSA (timpii raman valabili daca schimbi taieturile)
     words = transcribe(src, cfg, report, on_segment)
     if script:
-        segs, words, summary = apply_script(script, words, segs, cfg, report)
+        segs, words, summary, info = apply_script(script, words, segs, cfg, report, src)
         project["segments"] = segs
+        if info:
+            project["script_align"] = info
         save_project(job_dir, project)
         render_proxy(src, segs, cut, report, n=2, scale=(0, 100), audio_src=snd)
         report({"type": "stage_detail", "n": 2, "detail": summary})

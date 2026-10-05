@@ -157,10 +157,16 @@ După drag & drop, video-ul **așteaptă**: vezi video-ul, lipești scriptul (op
   (o încercare oprită la jumătate nu câștigă în fața uneia întregi, chiar dacă e mai târzie);
 - **scoate ce nu e în script** — bâlbe, fraze abandonate, „stai, o iau de la capăt”;
 - **pune frazele în ordinea din script**, chiar dacă le-ai filmat în altă ordine (de ex. semnătura la început);
+- **sare peste dublele spuse încet** (când îți citești fraza de pe ecran înainte s-o spui la cameră), dacă există una spusă normal;
 - pune în **subtitrări textul exact din script** (diacritice, punctuație).
 Fiecare opțiune se poate opri. Dacă scriptul se potrivește cu mai puțin de jumătate din video, nu taie nimic
 în afara lui (doar reluări și pauze). Orice tăietură se poate readuce din Timeline (✂).
 Pentru zile cu multe video-uri: Setări → „Pornește automat după încărcare”.
+
+**Tabul „📜 Script” (în Timeline):** pentru fiecare frază din script vezi toate dublele găsite în filmare, pe care a ales-o aplicația,
+cât de bine se potrivesc și care sunt spuse încet („🔈 încet”). ▶ = o asculți; click pe altă dublă = o folosești pe ea
+(bucățile și subtitrările se refac singure); „✕ Scoate” = fraza nu mai intră în video. Se salvează cu „Salvează și randează”, iar Ctrl+Z merge.
+Video-urile procesate înainte de această versiune: apasă „Refă cu setările actuale” ca să apară aici.
 
 ## Editarea subtitrărilor
 După ce un video e gata, apasă **„Editează subtitrările”**:

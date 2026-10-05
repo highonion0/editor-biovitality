@@ -20,6 +20,7 @@ MIN_SCORE = 0.55      # cat din fraza trebuie sa se regaseasca intr-o dubla
 MIN_UNIT_WORDS = 4    # frazele mai scurte se lipesc de urmatoarea (potrivire mai sigura)
 GOOD_SCORE = 0.8      # o dubla „buna” (aproape toata fraza); intre ele castiga cea mai tarzie
 CUT_SHORT = 0.25      # penalizarea unei dduble oprite inainte de finalul frazei („...mai ales în...”)
+QUIET = 0.55          # o dubla mult mai incetisoara decat celelalte = citita pentru tine de pe ecran, nu spusa la camera
 
 
 def norm(w):
@@ -108,6 +109,9 @@ def _preference(takes):
         return []
     best = max(c["score"] for c in takes)
     good = [c for c in takes if c["score"] >= max(GOOD_SCORE, best - 0.08)] or [max(takes, key=lambda c: c["score"])]
+    loud = [c for c in good if not c.get("quiet")]          # citita incet de pe ecran: doar daca nu exista alta
+    if loud:
+        good = loud
     rest = sorted((c for c in takes if not any(c is g for g in good)), key=lambda c: (-c["score"], -c["s"]))
     return sorted(good, key=lambda c: -c["s"]) + rest
 
@@ -142,22 +146,36 @@ def keep_intervals(al, words, before, after):
     return [(k, tuple(iv[k])) for k in keep_order(al)]
 
 
-def align(script_text, words):
-    """words = [(start, end, text), ...] din transcriere, in timpul sursei."""
+def align(script_text, words, loudness=None):
+    """words = [(start, end, text), ...] din transcriere, in timpul sursei.
+    loudness(a, b) -> cat de tare vorbesti intre a si b (optional): dublele mult mai incete sunt marcate „quiet”."""
     units = script_units(script_text)
     words_n = [norm(w[2]) for w in words]
     units_n = [[norm(w) for w in u] for u in units]
     all_takes = [find_takes(u, words_n) for u in units_n]
-    chosen = choose_takes(all_takes)
+    if loudness:
+        flat = [c for t in all_takes for c in t]
+        for c in flat:
+            c["loud"] = float(loudness(words[c["s"]][0], words[c["e"]][1]))
+        vals = sorted(c["loud"] for c in flat if c["loud"] > 0)
+        med = vals[len(vals) // 2] if vals else 0
+        for c in flat:
+            c["quiet"] = bool(med and c["loud"] < QUIET * med)
+    return finish({"units": units, "all_takes": all_takes, "chosen": choose_takes(all_takes)})
+
+
+def finish(al):
+    """Din dublele alese: ce cuvinte sunt folosite si ce e reluare (de taiat)."""
     used = set()
-    for c in chosen.values():
+    for c in al["chosen"].values():
         used.update(range(c["s"], c["e"] + 1))
     in_retake = set()
-    for k, takes in enumerate(all_takes):
+    for k, takes in enumerate(al["all_takes"]):
         for c in takes:
-            if chosen.get(k) is not c:
+            if al["chosen"].get(k) is not c:
                 in_retake.update(i for i in range(c["s"], c["e"] + 1) if i not in used)
-    return {"units": units, "all_takes": all_takes, "chosen": chosen, "used": used, "retake": in_retake}
+    al["used"], al["retake"] = used, in_retake
+    return al
 
 
 def take_intervals(al, words):

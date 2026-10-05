@@ -69,7 +69,7 @@ async function openTimeline(j) {
   clearTimeout(slow);
   if (pv.url) d.source = pv.url;
   Object.assign(T, {
-    on: true, id: j.id, name: j.name, pr: d.project, visionDefault: d.vision_default || '', src: d.source, assetBase: d.asset_base, assets: d.assets,
+    on: true, id: j.id, name: j.name, pr: d.project, visionDefault: d.vision_default || '', scChosen: null, src: d.source, assetBase: d.asset_base, assets: d.assets,
     segs: deep(d.project.segments), ovs: deep(d.project.overlays || []), auds: deep(d.project.audio || []),
     look: deep(d.project.look || { color: { preset: 'original', brightness: 0, contrast: 1, saturation: 1, temperature: 0, tint: 0 }, audio: { denoise: 'off', clear: false, loudness: false } }),
     zooms: deep(d.project.zooms || []), trans: deep(d.project.transitions || {}),
@@ -128,7 +128,7 @@ function buildTimeline() {
         </div>
         <div id="tSzHost"></div>
       </div>
-      <div class="card tinsp" id="tInsp"><div class="itabs" id="tTabs"><button data-t="props">Proprietăți</button><button data-t="cap">Aa Subtitrări</button><button data-t="look">🎨 Look</button><button data-t="sfx">📚 Bibliotecă</button><button data-t="prop">💡 Propuneri</button><button data-t="pub">📣 Publicare</button><button data-t="ai">✦ Asistent</button></div><div id="tInspBody"></div></div>
+      <div class="card tinsp" id="tInsp"><div class="itabs" id="tTabs"><button data-t="props">Proprietăți</button><button data-t="cap">Aa Subtitrări</button><button data-t="script">📜 Script</button><button data-t="look">🎨 Look</button><button data-t="sfx">📚 Bibliotecă</button><button data-t="prop">💡 Propuneri</button><button data-t="pub">📣 Publicare</button><button data-t="ai">✦ Asistent</button></div><div id="tInspBody"></div></div>
     </div>
     <div class="card tlcard">
       <div class="tltools">
@@ -181,7 +181,7 @@ function buildTimeline() {
 function tlTabs() {
   document.querySelectorAll('#tTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === T.tab));
   if (T.tab === 'ai') renderAssistant(); else if (T.tab === 'sfx') renderLibrary(); else if (T.tab === 'prop') renderProposals();
-  else if (T.tab === 'cap') renderCaptionsTab(); else if (T.tab === 'look') renderLook(); else if (T.tab === 'pub') renderPublish(); else tlInspector();
+  else if (T.tab === 'cap') renderCaptionsTab(); else if (T.tab === 'look') renderLook(); else if (T.tab === 'pub') renderPublish(); else if (T.tab === 'script') renderScriptTab(); else tlInspector();
 }
 
 /* ---------------------------------------------------------------- randare timeline */
@@ -551,7 +551,7 @@ function tlLoop() {
 
 /* ---------------------------------------------------------------- istoric */
 const tlSnap = () => JSON.stringify({ segs: T.segs, ovs: T.ovs, auds: T.auds, cs: T.pr.captions ? T.pr.captions.style : null,
-  cc: T.pr.captions ? T.pr.captions.cues : null, lk: T.look, zo: T.zooms, tr: T.trans });
+  cc: T.pr.captions ? T.pr.captions.cues : null, lk: T.look, zo: T.zooms, tr: T.trans, sc: T.scChosen || null });
 function tlCommit(prev) { if (prev === tlSnap()) return; T.undo.push(prev); if (T.undo.length > 200) T.undo.shift(); T.redo = []; T.dirty = true; tlDirtyUI(); tlAutosaveSoon(); }
 function tlChange(fn) { const prev = tlSnap(); fn(); tlCommit(prev); tlAfter(); }
 function tlHistory(dir) {
@@ -563,11 +563,13 @@ function tlHistory(dir) {
   if (st.lk) { T.look = st.lk; lkApply(); if (T.tab === 'look') renderLook(); }
   if (st.zo) T.zooms = st.zo;
   if (st.tr) T.trans = st.tr;
+  T.scChosen = st.sc || null;
   T.sel = null; T.dirty = true; tlDirtyUI(); tlAfter(); tlAutosaveSoon();
 }
 function tlAfter() {
   T.t = Math.min(T.t, Math.max(0, tlTotal() - 0.001)); tlRender(); tlInspector(); tlSeek(T.t); szBadge();
   if (T.tab === 'cap' && !TC.local && !document.querySelector('#tcList textarea')) renderCaptionsTab();
+  if (T.tab === 'script') renderScriptTab();
 }
 function tlDirtyUI() {
   const d = $('#tDirty'); if (d) d.textContent = T.dirty ? '● Modificări nesalvate' : '';
@@ -1345,7 +1347,7 @@ function tlInspector() {
 /* ---------------------------------------------------------------- salvare automata (ciorna) */
 function tlState() {
   return { segments: T.segs, overlays: T.ovs, audio: T.auds, caption_style: T.pr.captions ? T.pr.captions.style : null,
-    caption_cues: T.pr.captions ? T.pr.captions.cues : null, look: T.look, zooms: T.zooms, transitions: T.trans };
+    caption_cues: T.pr.captions ? T.pr.captions.cues : null, look: T.look, zooms: T.zooms, transitions: T.trans, script_chosen: T.scChosen || null };
 }
 function tlAutosaveSoon() { clearTimeout(T.asTimer); T.asTimer = setTimeout(tlAutosave, 1000); }
 async function tlAutosave() {
@@ -1410,7 +1412,8 @@ async function tlSave() {
   const btn = $('#tSave'); btn.disabled = true;
   const r = await fetch(`/api/timeline/${T.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ segments: T.segs, overlays: T.ovs, audio: T.auds, caption_style: T.pr.captions ? T.pr.captions.style : null,
-      caption_cues: T.pr.captions ? T.pr.captions.cues : null, look: T.look, zooms: T.zooms, transitions: T.trans }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+      caption_cues: T.pr.captions ? T.pr.captions.cues : null, look: T.look, zooms: T.zooms, transitions: T.trans,
+      script_chosen: T.scChosen || null }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
   if (r.error) { toast(r.error); btn.disabled = false; return; }
   const id = T.id; T.dirty = false; T.on = false; T.ovEls = new Map(); T.auEls = new Map(); S.rendered = null;
   S.selected = id; S.mediaPick[id] = 'final';
