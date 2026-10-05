@@ -347,6 +347,7 @@ Ce contează:
 - „zoom”: 1–3 momente-cheie (o cifră, o afirmație tare), fiecare cu from_line / to_line și „zoom” (1.05–1.6; 1.15–1.25 arată bine).
 - Nu pune elemente peste cele care există deja pe timeline și nu suprapune două grafice în același loc în același timp.
 - Măsură: pentru un video de ~45 s, de obicei 4–8 grafice, 4–8 evidențieri, 2–5 efecte sonore.
+  Pentru video-uri lungi (câteva minute), proporțional cu durata, dar cel mult ~40 de propuneri, pe momentele cele mai importante.
 - Momentele: pentru tot ce ține de o frază folosește from_line / to_line (numerele # din transcriere), nu secunde.
   Doar „cut” poate avea start / end în secunde.
 - Pentru „graphic” completează OBLIGATORIU „props” cu cheile exacte ale șablonului și textul potrivit acelui moment
@@ -361,7 +362,7 @@ def propose(project, state, sfx_names):
         raise AssistantError("Nu ai setat încă cheia API. O adaugi din tabul Asistent.")
     lib = "\n".join(f"- {n}" for n in sfx_names[:300]) if sfx_names else "(biblioteca de sunete e goală — nu propune efecte sonore)"
     system = build_system(project, state) + PROPOSE_GUIDE + "\nBiblioteca de efecte sonore (categorie / nume):\n" + lib
-    data, inp = _tool_call(system, "Analizează video-ul și propune-mi cum l-ai edita.", propose_tool(), 8000)
+    data, inp = _tool_call(system, "Analizează video-ul și propune-mi cum l-ai edita.", propose_tool(), 16000)
     if inp is None:
         raise AssistantError("Claude n-a trimis propuneri. Mai încearcă o dată.")
     cues, segs, _ = _out_cues(project, state)
@@ -428,7 +429,7 @@ def _post(body, key):
     req = urllib.request.Request(API_URL, data=json.dumps(body, ensure_ascii=False).encode("utf-8"), method="POST",
                                  headers={"content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01"})
     try:
-        with urllib.request.urlopen(req, timeout=180) as r:
+        with urllib.request.urlopen(req, timeout=400) as r:      # video-urile lungi (10+ min) au transcrieri mari
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         _raise_http(e)
@@ -488,6 +489,22 @@ PLATFORMS = {"tiktok": "TikTok", "instagram": "Instagram Reels", "youtube": "You
 HASHTAG_MAX = {"tiktok": 5, "instagram": 12, "youtube": 5, "facebook": 3}
 LANG_FULL = {"ro": "română", "it": "italiană", "en": "engleză"}
 PACK_FILE = "publicare.json"
+CAPTION_FILE = "caption.txt"     # captionul scris de ea, ca fisier text (se deschide in Notepad)
+
+def save_caption(job_dir, text):
+    text = str(text or "").replace("\r\n", "\n").strip()[:5000]
+    f = Path(job_dir) / CAPTION_FILE
+    if text:
+        f.write_text(text.replace("\n", "\r\n") + "\r\n", encoding="utf-8-sig")   # BOM + CRLF: diacriticele si randurile arata bine in Notepad
+    else:
+        f.unlink(missing_ok=True)
+    return text
+
+def load_caption(job_dir):
+    try:
+        return (Path(job_dir) / CAPTION_FILE).read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip()
+    except OSError:
+        return ""
 
 def pack_tool(platforms):
     return {
@@ -539,13 +556,16 @@ def _clean_tags(tags, n):
             out.append(t)
     return out[:n]
 
-def publish_pack(project, state, platforms, note=""):
+def publish_pack(project, state, platforms, note="", caption=""):
     platforms = [p for p in PLATFORMS if p in (platforms or [])] or list(PLATFORMS)
     lang = LANG_FULL.get((project.get("settings") or {}).get("language"), "română")
     system = build_system(project, state) + PACK_GUIDE.replace("{lang}", lang)
     ask_txt = "Pregătește pachetul de publicare pentru: " + ", ".join(PLATFORMS[p] for p in platforms) + "."
     if note.strip():
         ask_txt += f"\nIndicațiile mele pentru acest video: {note.strip()[:1000]}"
+    if caption.strip():
+        ask_txt += ("\nCaptionul scris de mine pentru acest video (folosește-l ca bază: păstrează-i ideea, tonul și formulările mele, "
+                    f"doar adaptează-l pe fiecare platformă):\n{caption.strip()[:3000]}")
     data, inp = _tool_call(system, ask_txt, pack_tool(platforms), 8000)
     if inp is None:
         raise AssistantError("Claude n-a trimis pachetul. Mai încearcă o dată.")
@@ -586,9 +606,11 @@ def clean_pack(raw):
                                      "first_comment": str(p.get("first_comment") or "")[:600]})
     return out
 
-def pack_text(pack, video_name):
+def pack_text(pack, video_name, caption=""):
     """Varianta de citit (publicare.txt), ca s-o poti deschide si din folderul cu rezultate."""
     lines = [f"PACHET DE PUBLICARE · {video_name}", ""]
+    if caption:
+        lines += ["=== Captionul meu ===", caption, "", ""]
     c = pack.get("cover") or {}
     if c.get("title"):
         lines += [f"Coperta: {c['title']}" + (f" / {c['subtitle']}" if c.get("subtitle") else ""), ""]
@@ -606,7 +628,7 @@ def save_pack(job_dir, pack, video_name):
     job_dir = Path(job_dir)
     pack = clean_pack(pack)
     (job_dir / PACK_FILE).write_text(json.dumps(pack, ensure_ascii=False, indent=1), encoding="utf-8")
-    (job_dir / "publicare.txt").write_text(pack_text(pack, video_name), encoding="utf-8")
+    (job_dir / "publicare.txt").write_text(pack_text(pack, video_name, load_caption(job_dir)), encoding="utf-8-sig")
     return pack
 
 def load_pack(job_dir):

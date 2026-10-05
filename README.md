@@ -17,6 +17,10 @@ Vezi totul live, într-o interfață în browser. Rulează doar pe calculatorul 
   `video_taiat.mp4`, `video_final.mp4` (cu subtitrări), `subtitrari.srt`, `transcript.txt`.
 - Închizi aplicația din butonul de pornire/oprire din dreapta sus.
 
+## Video-uri lungi (10 minute sau mai mult)
+Merg. Un video de 10 minute, cu ~150 de bucăți după tăierea pauzelor, se lipește folosind cam 2 GB de memorie.
+Durează mai mult decât un video scurt: transcrierea, randarea și propunerile lui Claude cresc odată cu durata.
+
 ## Mutarea bucăților (reordonare)
 În Timeline, **trage o bucată de pe pista VIDEO** în stânga sau în dreapta. Un semn galben arată unde ajunge.
 Alternativ, selectează bucata și apasă **◀ Mută mai devreme / Mută mai târziu ▶** sau **Alt+← / Alt+→**.
@@ -26,7 +30,10 @@ Alternativ, selectează bucata și apasă **◀ Mută mai devreme / Mută mai t�
 - Între două bucăți mutate una lângă alta apare semnul **⋮**: click pe el ca să pui o tranziție.
 
 ## 📣 Publicare (în Timeline, tabul „📣 Publicare”)
-Ai nevoie de cheia API Claude (tabul Asistent).
+**✍ Captionul tău** (fără cheie API): scrii textul postării în tab. Se salvează singur în `caption.txt`, în folderul video-ului, și îl deschizi cu Notepad.
+Îl descarci și din pagina video-ului, cu butonul **Caption .txt**. Dacă ceri apoi pachetul de la Claude, el pornește de la captionul tău.
+
+Pentru restul tabului ai nevoie de cheia API Claude (tabul Asistent).
 
 **Pachetul de publicare**
 - Bifezi platformele (TikTok, Instagram, YouTube Shorts, Facebook). Opțional, scrii indicații pentru Claude.

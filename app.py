@@ -207,6 +207,8 @@ def _files_in(d, pr):
         files["cover"] = core.COVER_FILE
     if (d / "publicare.txt").exists():
         files["pack"] = "publicare.txt"
+    if (d / assistant.CAPTION_FILE).exists():
+        files["caption_txt"] = assistant.CAPTION_FILE
     return files
 
 def load_existing_projects():
@@ -317,6 +319,8 @@ def run_timeline(job, payload):
                 s_.update(status="done", progress=100)
         job["status"], job["error"] = "done", None
         add_log(job, f"Timeline randat ({time.time() - t0:.0f} secunde).")
+        if job["files"].get("caption_txt"):
+            add_log(job, f"Captionul tău e în {assistant.CAPTION_FILE}, în același folder cu video-ul.")
         save_job_meta(job)
     except Exception as e:
         job["status"] = "error"
@@ -377,6 +381,8 @@ def run_variants(job, payload):
         job["status"], job["error"] = "done", None
         add_log(job, f"Variantele de cârlig sunt gata ({time.time() - t0:.0f} secunde): "
                      + ", ".join(f"varianta_{h['label']}.mp4" for h in hooks))
+        if job["files"].get("caption_txt"):
+            add_log(job, f"Captionul tău e în {assistant.CAPTION_FILE}, în același folder cu variantele.")
         save_job_meta(job)
     except Exception as e:
         job["status"] = "error"
@@ -603,6 +609,7 @@ class Handler(BaseHTTPRequestHandler):
             pr = core.load_project(job["dir"])
             f = job["files"]
             self._json({"pack": assistant.load_pack(job["dir"]), "hooks": pr.get("hooks") or [],
+                        "caption": assistant.load_caption(job["dir"]),
                         "variants": {k[4:]: v for k, v in f.items() if k.startswith("var_")},
                         "cover": f"/media/{job['id']}/cover?v={int((Path(job['dir']) / core.COVER_FILE).stat().st_mtime)}"
                                  if f.get("cover") and (Path(job["dir"]) / core.COVER_FILE).exists() else None,
@@ -892,7 +899,8 @@ class Handler(BaseHTTPRequestHandler):
                 pr = core.load_project(job["dir"])
                 if parts[1] == "hooks-propose":
                     return self._json(assistant.propose_hooks(pr, body.get("state") or {}))
-                res = assistant.publish_pack(pr, body.get("state") or {}, body.get("platforms"), str(body.get("note") or ""))
+                res = assistant.publish_pack(pr, body.get("state") or {}, body.get("platforms"), str(body.get("note") or ""),
+                                             assistant.load_caption(job["dir"]))
                 res["pack"] = assistant.save_pack(job["dir"], res, job["name"])
                 job["files"]["pack"] = "publicare.txt"
                 save_job_meta(job)
@@ -910,6 +918,21 @@ class Handler(BaseHTTPRequestHandler):
             pack = assistant.save_pack(job["dir"], body.get("pack"), job["name"])
             job["files"]["pack"] = "publicare.txt"
             return self._json({"pack": pack})
+        if len(parts) == 3 and parts[:2] == ["api", "caption-text"]:
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            text = assistant.save_caption(job["dir"], body.get("text"))
+            if text:
+                job["files"]["caption_txt"] = assistant.CAPTION_FILE
+            else:
+                job["files"].pop("caption_txt", None)
+            pack = assistant.load_pack(job["dir"])
+            if pack:                                  # publicare.txt are captionul sus
+                assistant.save_pack(job["dir"], pack, job["name"])
+            emit(job)
+            return self._json({"ok": True, "text": text})
         if len(parts) == 3 and parts[:2] == ["api", "cover"]:
             job = self._job_with_project(parts[2])
             if not job:

@@ -547,6 +547,7 @@ function buildJob(j) {
         <button class="btn" id="aRedo">${ICON.redo}Refă cu setările actuale</button>
         <button class="btn" id="aTimeline">${ICON.tl}Timeline</button>
         <button class="btn" id="aEdit">${ICON.edit}Editează subtitrările</button>
+        <a class="btn" id="aCapTxt" title="Captionul scris de tine în tabul Publicare">${ICON.down}Caption .txt</a>
         <a class="btn primary" id="aVideo">${ICON.down}Descarcă video</a>
       </div>
     </div>
@@ -597,6 +598,7 @@ function updateJob(j) {
   srt.classList.toggle('dis', !(j.files && j.files.srt)); srt.href = j.files && j.files.srt ? `/download/${j.id}/srt` : '#';
   const vk = j.files && (j.files.final ? 'final' : j.files.cut ? 'cut' : null);
   vid.classList.toggle('dis', !(done && vk)); vid.href = done && vk ? `/download/${j.id}/${vk}` : '#';
+  const ct = $('#aCapTxt'); ct.style.display = j.files && j.files.caption_txt ? '' : 'none'; ct.href = `/download/${j.id}/caption_txt`;
   $('#aCopy').disabled = !j.segments.length;
   $('#aRedo').disabled = j.status === 'running' || j.status === 'queued';
   $('#aEdit').disabled = !(j.status === 'done' && j.files && j.files.captions);

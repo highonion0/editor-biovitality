@@ -1119,7 +1119,7 @@ def analyze_segments(src, job_dir, cfg, report):
     return segs
 
 def _ffmpeg_complex(src, fc, maps, dst, venc, duration, report, scale, extra_inputs=(), cwd=None):
-    base = [find_tool("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-i", str(src)]
+    base = [find_tool("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error"] + (["-i", str(src)] if src is not None else [])
     for args in extra_inputs:
         base += list(args)
     tail = [*maps, *venc, "-pix_fmt", "yuv420p", "-movflags", "+faststart",
@@ -1156,17 +1156,49 @@ def _ffmpeg_complex(src, fc, maps, dst, venc, duration, report, scale, extra_inp
         if script:
             script.unlink(missing_ok=True)
 
+def _source_runs(segs):
+    """Bucatile, grupate in „runde” care merg inainte in sursa (o runda noua unde o bucata mutata sare inapoi)."""
+    runs = []
+    for a, b in segs:
+        if runs and a >= runs[-1][-1][1] - 1e-3:
+            runs[-1].append((a, b))
+        else:
+            runs.append([(a, b)])
+    return runs
+
 def render_proxy(src, segs, dst, report, n=1, scale=(30, 100), audio_src=None):
-    """Copia taiata, pentru previzualizare si pentru motorul clasic. audio_src = sunetul curatat (acelasi timp ca sursa)."""
+    """Copia taiata, pentru previzualizare si pentru motorul clasic. audio_src = sunetul curatat (acelasi timp ca sursa).
+    Imaginea se citeste o singura data, pe curgere (select pe numarul cadrului), ca memoria sa nu creasca odata cu
+    lungimea video-ului (cu trim pe fiecare bucata, un video de 10 minute umplea peste 13 GB). Bucatile mutate
+    (alta ordine decat in sursa) se impart in runde; fiecare runda are intrarea ei, cu salt direct la inceputul ei.
+    Sunetul se taie exact pe aceleasi granite de cadre, deci imaginea si vocea raman sincron."""
     audio = bool(audio_src) or probe_has_audio(src)
-    ain = "1:a" if audio_src else "0:a"
-    parts, labels = [], ""
-    for i, (a, b) in enumerate(segs):
-        parts.append(f"[0:v]trim=start={a:.4f}:end={b:.4f},setpts=PTS-STARTPTS[v{i}]")
+    fps = probe_fps(src)
+    runs = _source_runs(segs)
+    inputs, parts, labels, k = [], [], "", 0
+    for r, run in enumerate(runs):
+        r0 = max(0.0, run[0][0] - 1.0)
+        seek = ["-ss", f"{r0:.3f}", "-t", f"{run[-1][1] + 1.0 - r0:.3f}"]
+        inputs.append(seek + ["-i", str(src)])
+        vi = ai = k
+        k += 1
+        if audio_src:
+            inputs.append(seek + ["-i", str(audio_src)])
+            ai = k
+            k += 1
+        fr = [(int(round((a - r0) * fps)), int(round((b - r0) * fps))) for a, b in run]
+        fr = [(x, y) for x, y in fr if y > x] or [(fr[0][0], fr[0][0] + 1)]
+        sel = "+".join(f"between(n\\,{x}\\,{y - 1})" for x, y in fr)
+        parts.append(f"[{vi}:v]fps={fps},select={sel},setpts=N/FRAME_RATE/TB[v{r}]")
+        labels += f"[v{r}]"
         if audio:
-            parts.append(f"[{ain}]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS[a{i}]")
-        labels += f"[v{i}]" + (f"[a{i}]" if audio else "")
-    parts.append(f"{labels}concat=n={len(segs)}:v=1:a={1 if audio else 0}[v]" + ("[a]" if audio else ""))
+            al = ""
+            for i, (x, y) in enumerate(fr):
+                parts.append(f"[{ai}:a]atrim=start={x / fps:.5f}:end={y / fps:.5f},asetpts=PTS-STARTPTS[a{r}_{i}]")
+                al += f"[a{r}_{i}]"
+            parts.append(f"{al}concat=n={len(fr)}:v=0:a=1[a{r}]" if len(fr) > 1 else f"{al}anull[a{r}]")
+            labels += f"[a{r}]"
+    parts.append(f"{labels}concat=n={len(runs)}:v=1:a={1 if audio else 0}[v]" + ("[a]" if audio else ""))
     maps = ["-map", "[v]"] + (["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] if audio else [])
     duration = seg_total(segs) or 1.0
     encoders = []
@@ -1176,8 +1208,7 @@ def render_proxy(src, segs, dst, report, n=1, scale=(30, 100), audio_src=None):
     err = ""
     for where, venc in encoders:
         report({"type": "stage_detail", "n": n, "detail": f"Lipesc bucățile · {where.split(' (')[0]}"})
-        rc, err = _ffmpeg_complex(src, ";".join(parts), maps, dst, venc, duration, report, scale,
-                                  extra_inputs=[["-i", str(audio_src)]] if audio_src else ())
+        rc, err = _ffmpeg_complex(None, ";".join(parts), maps, dst, venc, duration, report, scale, extra_inputs=inputs)
         if rc == 0:
             return
         report({"type": "log", "msg": f"Lipirea pe {where} n-a mers, încerc altfel."})

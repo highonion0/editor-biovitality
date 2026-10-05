@@ -25,14 +25,42 @@ async function renderPublish() {
   if (!st.loaded) {
     body.innerHTML = '<div class="pbox"><div class="msg wait"><span class="spin"></span>Încarc…</div></div>';
     const r = await fetch(`/api/publish/${id}`).then(r => r.json()).catch(() => ({}));
-    if (!r.error) Object.assign(st, { pack: r.pack, hooks: r.hooks || [], cover: r.cover });
+    if (!r.error) Object.assign(st, { pack: r.pack, hooks: r.hooks || [], cover: r.cover, caption: r.caption || '' });
     st.loaded = true;
     if (!T.on || T.id !== id || T.tab !== 'pub') return;
   }
   const keep = body.scrollTop;
-  body.innerHTML = `<div class="pubwrap">${pubPackHTML(st)}${pubHooksHTML(st)}</div>`;
+  body.innerHTML = `<div class="pubwrap">${pubCaptionHTML(st)}${pubPackHTML(st)}${pubHooksHTML(st)}</div>`;
   body.scrollTop = keep;
-  pubBindPack(body, st); pubBindHooks(body, st);
+  pubBindCaption(body, st); pubBindPack(body, st); pubBindHooks(body, st);
+}
+
+/* ---------------------------------------------------------------- 0) captionul scris de ea -> caption.txt */
+function pubCaptionHTML(st) {
+  const c = st.caption || '';
+  return `<section class="pubsec"><h4>✍ Captionul tău</h4>
+    <p class="sub2">Scrie aici textul postării. Se salvează singur în <b>caption.txt</b>, în folderul video-ului (lângă video-ul exportat) — îl deschizi cu Notepad.
+      Dacă ceri și pachetul de mai jos, Claude pornește de la captionul tău.</p>
+    <textarea id="pubCap" rows="6" placeholder="Scrie captionul aici…">${esc(c)}</textarea>
+    <div class="row"><button class="btn sm" id="pubCapCopy" ${c ? '' : 'disabled'}>📋 Copiază</button>
+      <a class="btn sm" id="pubCapDl" href="/download/${T.id}/caption_txt" ${c ? '' : 'style="display:none"'}>⬇ caption.txt</a>
+      <span class="sub2" id="pubCapInfo">${pubCapInfo(c, c ? 'Salvat' : '')}</span></div></section>`;
+}
+const pubCapInfo = (c, state) => `${c.length} caractere${c.length > 2200 ? ' · peste limita Instagram (2200)' : ''}${state ? ' · ' + state : ''}`;
+function pubBindCaption(body, st) {
+  const ta = $('#pubCap', body), info = $('#pubCapInfo', body);
+  ta.oninput = () => {
+    st.caption = ta.value; info.textContent = pubCapInfo(ta.value, 'se salvează…');
+    $('#pubCapCopy', body).disabled = !ta.value.trim();
+    clearTimeout(st.capT);
+    st.capT = setTimeout(async () => {
+      const r = await pubPost(`/api/caption-text/${T.id}`, { text: st.caption });
+      if (!document.body.contains(info)) return;
+      info.textContent = pubCapInfo(st.caption, r.error ? 'nu s-a salvat' : r.text ? 'Salvat în caption.txt' : '');
+      $('#pubCapDl', body).style.display = r.text ? '' : 'none';
+    }, 700);
+  };
+  $('#pubCapCopy', body).onclick = () => pubCopy(st.caption, 'Captionul');
 }
 // cand se termina randarea variantelor, apar linkurile
 function pubOnJob() { if (T.on && T.tab === 'pub' && !document.activeElement?.closest?.('.pubwrap input, .pubwrap textarea')) renderPublish(); }
