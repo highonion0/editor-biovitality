@@ -323,3 +323,9 @@
 .hkclip{font-size:13px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .hkclip em{color:var(--muted);font-style:normal;font-size:12px}
 @media (max-width:700px){.pubcover{grid-template-columns:1fr}.hkrow{grid-template-columns:1fr}}
+
+/* „tu peste el”: fundalul sta sub video-ul tau */
+.tbgl{position:absolute;inset:0;overflow:hidden}
+.tbgl .tov{position:absolute;transform:translate(-50%,-50%);display:block;pointer-events:none}
+.pipbox{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding:10px 12px;border:1px solid rgba(232,168,59,.35);border-radius:11px}
+.pipbox .row{display:flex;flex-wrap:wrap;gap:6px}

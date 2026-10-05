@@ -965,10 +965,34 @@ def clean_overlays(raw, total, assets_dir):
             "rotation": round(_num(o.get("rotation"), -360, 360, 0), 2),
             "radius": round(_num(o.get("radius"), 0, 50, 0), 2),     # % din latura mai mica
             "ar": ar_cache[name],                                     # inaltime / latime
-            "fit": "cover" if o.get("fit") == "cover" else "free",    # cover = umple tot cadrul (decupat)
+            # cover = umple tot cadrul (decupat); bg = fundal: umple cadrul IN SPATELE tau, iar tu apari intr-o fereastra (pip)
+            "fit": o.get("fit") if o.get("fit") in ("cover", "bg") else "free",
+            **({"pip": clean_pip(o.get("pip"))} if o.get("fit") == "bg" else {}),
             "prompt": str(o.get("prompt", ""))[:3000], "idea": str(o.get("idea", ""))[:300], **_motion(o, total),
         })
     return out
+
+PIP_SHAPES = ("rect", "circle", "tall")
+PIP_DEFAULT = {"shape": "rect", "w": 0.62, "x": 0.5, "y": 0.74}
+
+def clean_pip(raw):
+    """Fereastra in care apari tu cand o poza / un clip e fundal: forma, latimea (din latimea cadrului) si centrul."""
+    raw = raw if isinstance(raw, dict) else {}
+    return {"shape": raw.get("shape") if raw.get("shape") in PIP_SHAPES else PIP_DEFAULT["shape"],
+            "w": round(_num(raw.get("w"), 0.2, 1.0, PIP_DEFAULT["w"]), 4),
+            "x": round(_num(raw.get("x"), 0.0, 1.0, PIP_DEFAULT["x"]), 4),
+            "y": round(_num(raw.get("y"), 0.0, 1.0, PIP_DEFAULT["y"]), 4)}
+
+def pip_rect(pip, W, H):
+    """Fereastra in pixeli: (x, y, w, h, raza). Aceleasi formule ca in previzualizare (timeline.js) si Remotion (Main.tsx)."""
+    ar = {"rect": 1.25, "circle": 1.0, "tall": H / W}[pip["shape"]]
+    w = pip["w"] * W
+    h = min(H, w * ar)
+    w = h / ar
+    x = min(max(0.0, pip["x"] * W - w / 2), W - w)
+    y = min(max(0.0, pip["y"] * H - h / 2), H - h)
+    r = min(w, h) / 2 if pip["shape"] == "circle" else min(w, h) * 0.06
+    return x, y, w, h, r
 
 def clean_audio(raw, total, assets_dir):
     """Pistele audio (muzica de fundal etc.), pe timpul final."""
@@ -1544,7 +1568,8 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
     if n_gfx:
         report({"type": "log", "msg": f"Atenție: {n_gfx} grafice animate nu apar în video — ele au nevoie de motorul Remotion "
                                       "(rulează „instaleaza_remotion.bat”)."})
-    ovs = [o for o in sorted(project.get("overlays", []), key=lambda o: o.get("lane", 0))
+    # fundalurile („tu peste el”) primele: peste ele vin celelalte suprapuneri
+    ovs = [o for o in sorted(project.get("overlays", []), key=lambda o: (o.get("fit") != "bg", o.get("lane", 0)))
            if o.get("type") in ("image", "video") and (job_dir / ASSETS / o["asset"]).is_file()]
     auds = [a for a in project.get("audio", []) if (job_dir / ASSETS / a["asset"]).is_file()]
     temps = list(card_temps)
@@ -1568,7 +1593,8 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
             k += 1
             f = str((job_dir / ASSETS / o["asset"]).resolve())
             S, E = o["start"], o["end"]
-            cover = o.get("fit") == "cover"
+            bg = o.get("fit") == "bg"
+            cover = o.get("fit") in ("cover", "bg")
             wpx = W if cover else max(2, int(W * o["w"] / 2) * 2)
             hpx = H if cover else max(2, int(wpx * o.get("ar", 1) / 2) * 2)
             fitf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}" if cover else f"scale={wpx}:{hpx}"
@@ -1587,7 +1613,7 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
                     parts.append(f"[{k}:a]atrim=start={ss:.3f}:duration={E - S:.3f},asetpts=PTS-STARTPTS,"
                                  f"adelay={d}:all=1[a{k}]")
                     audio.append(f"[a{k}]")
-            if o.get("radius", 0) > 0:
+            if o.get("radius", 0) > 0 and not cover:
                 mask = job_dir / f"_masca{n}.png"
                 _round_mask(mask, wpx, hpx, o["radius"])
                 temps.append(mask)
@@ -1602,8 +1628,27 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
                 rad = o["rotation"] * 3.141592653589793 / 180
                 chain += f",rotate={rad:.5f}:ow=rotw({rad:.5f}):oh=roth({rad:.5f}):c=none"
             parts.append(chain + f"[o{n}]")
-            parts.append(f"[b{n - 1}][o{n}]overlay=x=main_w*{o['x']}-overlay_w/2:y=main_h*{o['y']}-overlay_h/2:"
-                         f"enable='between(t,{S:.3f},{E:.3f})':eof_action=pass[b{n}]")
+            en = f"enable='between(t,{S:.3f},{E:.3f})'"
+            if bg:
+                # tu, intr-o fereastra (decupata din cadrul tau, cu centrul putin spre fata), peste fundal
+                px, py, pw, ph, pr = pip_rect(clean_pip(o.get("pip")), W, H)
+                ww, wh = max(2, int(pw / 2) * 2), max(2, int(ph / 2) * 2)
+                ar = wh / ww
+                cw, ch = (W, W * ar) if W * ar <= H else (H / ar, H)
+                parts.append(f"[b{n - 1}]split[bk{n}][bw{n}]")
+                parts.append(f"[bw{n}]crop={int(cw)}:{int(ch)}:(iw-ow)/2:(ih-oh)*0.3,scale={ww}:{wh},format=rgba[wr{n}]")
+                mask = job_dir / f"_fereastra{n}.png"
+                _round_mask(mask, ww, wh, 50 if pr >= min(ww, wh) / 2 - 1 else 6)
+                temps.append(mask)
+                k += 1
+                inputs.append(["-loop", "1", "-t", f"{total:.3f}", "-i", str(mask.resolve())])
+                parts.append(f"[{k}:v]format=gray[wm{n}m]")
+                parts.append(f"[wr{n}][wm{n}m]alphamerge[wm{n}]")
+                parts.append(f"[bk{n}][o{n}]overlay=0:0:{en}:eof_action=pass[bc{n}]")
+                parts.append(f"[bc{n}][wm{n}]overlay={int(px)}:{int(py)}:{en}[b{n}]")
+            else:
+                parts.append(f"[b{n - 1}][o{n}]overlay=x=main_w*{o['x']}-overlay_w/2:y=main_h*{o['y']}-overlay_h/2:"
+                             f"{en}:eof_action=pass[b{n}]")
         for a in auds:
             k += 1
             inputs.append(["-i", str((job_dir / ASSETS / a["asset"]).resolve())])

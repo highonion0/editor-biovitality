@@ -3,7 +3,7 @@ import {AbsoluteFill, Audio, Img, interpolate, OffthreadVideo, Sequence, Series,
 import {loadFont} from '@remotion/fonts';
 import {Captions} from './Captions';
 import {Graphic, TEMPLATES} from './Graphic';
-import type {AudioItem, FontDef, Keyframe, Overlay, Project, Zoom} from './types';
+import type {AudioItem, FontDef, Keyframe, Overlay, Pip, Project, Zoom} from './types';
 
 /* ---- miscarea: ACELEASI reguli ca in previzualizarea din editor (motion.js) ---- */
 const ease = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -60,6 +60,23 @@ export const zoomAt = (zooms: Zoom[] | undefined, t: number) => {
   return null;
 };
 
+// fereastra in care apari tu cand o poza / un clip e fundal (aceleasi formule ca core.pip_rect si timeline.js)
+export const pipRect = (pip: Pip, W: number, H: number) => {
+  const ar = pip.shape === 'circle' ? 1 : pip.shape === 'tall' ? H / W : 1.25;
+  const h = Math.min(H, pip.w * W * ar), w = h / ar;
+  const x = Math.min(Math.max(0, pip.x * W - w / 2), W - w), y = Math.min(Math.max(0, pip.y * H - h / 2), H - h);
+  return {x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : Math.min(w, h) * 0.06};
+};
+// la momentul t: dreptunghiul tau (tot cadrul sau fereastra), cu intrare / iesire lina de 0,35 s
+export const mainRect = (overlays: Overlay[], t: number, W: number, H: number) => {
+  const o = overlays.find((x) => x.fit === 'bg' && x.pip && t >= x.start && t < x.end);
+  if (!o || !o.pip) return null;
+  const d = Math.min(0.35, (o.end - o.start) / 3);
+  const k = ease(Math.min(1, (t - o.start) / d, (o.end - t) / d));
+  const p = pipRect(o.pip, W, H), lerp = (a: number, b: number) => a + (b - a) * k;
+  return {x: lerp(0, p.x), y: lerp(0, p.y), w: lerp(W, p.w), h: lerp(H, p.h), r: lerp(0, p.r)};
+};
+
 // fonturile aplicatiei: o singura data; loadFont opreste randarea pana sunt gata
 const useFonts = (fonts: FontDef[]) => useState(() => {
   fonts.forEach((f) => f.files.forEach(([file, weight, fstyle]) =>
@@ -94,7 +111,7 @@ const OverlayItem: React.FC<{o: Overlay; dur: number}> = ({o, dur}) => {
   const oop = keyAt(o.keys, 'opacity', t, o.opacity ?? 1) * a.op;
   const wpx = ow * width, hpx = wpx * (o.ar ?? 1);
   // cover = umple tot cadrul, decupat (B-roll pe tot ecranul)
-  const style: React.CSSProperties = o.fit === 'cover'
+  const style: React.CSSProperties = o.fit === 'cover' || o.fit === 'bg'
     ? {position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: oop}
     : {
       position: 'absolute', left: `${ox * 100}%`, top: `${oy * 100}%`, width: wpx, height: hpx,
@@ -121,7 +138,7 @@ const Track: React.FC<{a: AudioItem}> = ({a}) => {
 
 /* Pista principala, cu zoom pe tot video-ul si tranzitii la taieturi.
    Tranzitia se face peste cadrele dinaintea taieturii, deci durata video-ului NU se schimba. */
-const MainTrack: React.FC<{p: Project}> = ({p}) => {
+const MainTrack: React.FC<{p: Project; windowed?: boolean}> = ({p, windowed}) => {
   const {fps} = p;
   const frame = useCurrentFrame();
   const t = frame / fps;
@@ -159,7 +176,7 @@ const MainTrack: React.FC<{p: Project}> = ({p}) => {
               return (
                 <Series.Sequence key={i} durationInFrames={Math.max(1, b - a)}>
                   <OffthreadVideo src={p.source} startFrom={a} endAt={b} muted={!!p.main_audio}
-                    style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                    style={{width: '100%', height: '100%', objectFit: 'cover', objectPosition: windowed ? '50% 30%' : '50% 50%'}} />
                   {p.main_audio ? <Audio src={p.main_audio} startFrom={a} endAt={b} /> : null}
                 </Series.Sequence>
               );
@@ -169,6 +186,18 @@ const MainTrack: React.FC<{p: Project}> = ({p}) => {
       </AbsoluteFill>
       {flash > 0 ? <AbsoluteFill style={{backgroundColor: '#FFFFFF', opacity: flash * 0.85}} /> : null}
     </AbsoluteFill>
+  );
+};
+
+const MainWindow: React.FC<{p: Project}> = ({p}) => {
+  const {width, height, fps} = useVideoConfig();
+  const r = mainRect(p.overlays, useCurrentFrame() / fps, width, height);
+  if (!r) return <MainTrack p={p} />;
+  return (
+    <div style={{position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: r.r, overflow: 'hidden',
+      boxShadow: '0 12px 40px rgba(0,0,0,.45)'}}>
+      <MainTrack p={p} windowed />
+    </div>
   );
 };
 
@@ -183,10 +212,17 @@ export const Main: React.FC<Project> = (p) => {
           <filter id="bvgrade" colorInterpolationFilters="sRGB"><feColorMatrix type="matrix" values={p.grade.join(' ')} /></filter>
         </svg>
       ) : null}
-      {/* pista principala: bucatile pastrate din video-ul sursa, cu zoom si tranzitii */}
-      <MainTrack p={p} />
+      {/* fundalurile („tu peste el”): sub pista principala */}
+      {p.overlays.map((o, i) => {
+        if (o.fit !== 'bg') return null;
+        const from = Math.round(o.start * fps), dur = Math.max(1, Math.round(o.end * fps) - from);
+        return <Sequence key={`b${i}`} from={from} durationInFrames={dur}><OverlayItem o={o} dur={dur} /></Sequence>;
+      })}
+      {/* pista principala: bucatile pastrate din video-ul sursa, cu zoom si tranzitii (intr-o fereastra peste un fundal) */}
+      <MainWindow p={p} />
       {/* poze si video-uri suprapuse */}
       {p.overlays.map((o, i) => {
+        if (o.fit === 'bg') return null;
         const from = Math.round(o.start * fps), dur = Math.max(1, Math.round(o.end * fps) - from);
         return <Sequence key={`o${i}`} from={from} durationInFrames={dur}>
           {o.type === 'graphic' ? <GraphicItem o={o} dur={dur} /> : <OverlayItem o={o} dur={dur} />}</Sequence>;

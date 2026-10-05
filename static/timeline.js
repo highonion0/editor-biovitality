@@ -107,6 +107,7 @@ function buildTimeline() {
     <div class="tltop">
       <div class="card tlprev">
         <div class="tstage" id="tStage" style="aspect-ratio:${ar}">
+          <div class="tbgl" id="tBgL"></div>
           <div class="tvids" id="tVids">
             <video class="main" id="tVidA" src="${T.src}" preload="auto" playsinline></video>
             <video class="main" id="tVidB" src="${T.src}" preload="auto" playsinline muted style="visibility:hidden"></video>
@@ -320,7 +321,7 @@ function tlPaint() {
   const stage = $('#tStage'); if (!stage) return;
   const H = stage.clientHeight, total = tlTotal();
   // suprapuneri
-  const ovl = $('#tOvl'), seen = new Set();
+  const ovl = $('#tOvl'), bgl = $('#tBgL'), seen = new Set();
   T.ovs.forEach((o, k) => {
     const id = o.id || (o.id = 'o' + Math.random().toString(36).slice(2, 8));
     seen.add(id);
@@ -343,9 +344,11 @@ function tlPaint() {
       el.dataset.asset = key;
       ovl.appendChild(el); T.ovEls.set(id, el);
     }
+    const host = o.fit === 'bg' && bgl ? bgl : ovl;                // fundal = sub video-ul tau
+    if (el.parentElement !== host) host.appendChild(el);
     el.dataset.i = k;
     const vis = T.t >= o.start && T.t < Math.min(o.end, total);
-    const full = o.type === 'slot' || o.fit === 'cover';          // pe tot cadrul
+    const full = o.type === 'slot' || o.fit === 'cover' || o.fit === 'bg';          // pe tot cadrul
     const m = moAt(o, T.t);                                        // keyframes + animatii de intrare/iesire
     const wpx = full ? stage.clientWidth : m.w * stage.clientWidth, hpx = full ? stage.clientHeight : wpx * (o.ar || 1);
     Object.assign(el.style, { display: vis ? 'block' : 'none', left: full ? '50%' : m.x * 100 + '%', top: full ? '50%' : m.y * 100 + '%',
@@ -373,7 +376,7 @@ function tlPaint() {
   // cutia cu manere pentru suprapunerea selectata
   const box = $('#tBox'), so = T.sel && T.sel.kind === 'ov' ? T.ovs[T.sel.i] : null;
   if (box) {
-    const show = so && so.type !== 'slot' && so.fit !== 'cover' && T.t >= so.start && T.t < so.end && !T.playing;
+    const show = so && so.type !== 'slot' && so.fit !== 'cover' && so.fit !== 'bg' && T.t >= so.start && T.t < so.end && !T.playing;
     box.style.display = show ? 'block' : 'none';
     if (show) {
       const m = moAt(so, T.t), wpx = m.w * stage.clientWidth;
@@ -416,6 +419,12 @@ function tlPaint() {
 /* zoom-ul si tranzitiile, pe playerele video (aceleasi formule ca la randare) */
 function moPaintVideo() {
   const wrap = $('#tVids'); if (!wrap) return;
+  // „tu peste el”: video-ul tau intra intr-o fereastra peste fundal (aceleasi formule ca la randare)
+  const stage = $('#tStage'), r = stage ? moMainRect(T.t, stage.clientWidth, stage.clientHeight) : null;
+  Object.assign(wrap.style, r ? { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', right: 'auto', bottom: 'auto',
+    borderRadius: r.r + 'px', overflow: 'hidden', boxShadow: '0 8px 26px rgba(0,0,0,.45)' }
+    : { left: '', top: '', width: '', height: '', right: '', bottom: '', borderRadius: '', overflow: '', boxShadow: '' });
+  wrap.querySelectorAll('video.main').forEach(v => { v.style.objectFit = r ? 'cover' : ''; v.style.objectPosition = r ? '50% 30%' : ''; });
   const z = moZoomAt(T.t), tr = moTransAt(T.t);
   const sc = (z ? z.s : 1) * (tr.style.scale || 1);
   wrap.style.transform = z ? `scale(${sc}) translate(${z.ox / sc}%, ${z.oy / sc}%)` : (sc !== 1 ? `scale(${sc})` : '');
@@ -429,6 +438,18 @@ function moPaintVideo() {
     zt.style.display = sel && !T.playing ? 'block' : 'none';
     if (sel) { zt.style.left = sel.x * 100 + '%'; zt.style.top = sel.y * 100 + '%'; }
   }
+}
+function moPipRect(pip, W, H) {    // ca core.pip_rect
+  const ar = pip.shape === 'circle' ? 1 : pip.shape === 'tall' ? H / W : 1.25;
+  const h = Math.min(H, pip.w * W * ar), w = h / ar;
+  const x = Math.min(Math.max(0, pip.x * W - w / 2), W - w), y = Math.min(Math.max(0, pip.y * H - h / 2), H - h);
+  return { x, y, w, h, r: pip.shape === 'circle' ? Math.min(w, h) / 2 : Math.min(w, h) * 0.06 };
+}
+function moMainRect(t, W, H) {     // ca mainRect din Main.tsx: intrare / iesire lina de 0,35 s
+  const o = T.ovs.find(x => x.fit === 'bg' && x.pip && t >= x.start && t < x.end); if (!o) return null;
+  const d = Math.min(0.35, (o.end - o.start) / 3), k = MO_EASE(Math.min(1, (t - o.start) / d, (o.end - t) / d));
+  const p = moPipRect(o.pip, W, H), lerp = (a, b) => a + (b - a) * k;
+  return { x: lerp(0, p.x), y: lerp(0, p.y), w: lerp(W, p.w), h: lerp(H, p.h), r: lerp(0, p.r) };
 }
 /* Doua playere: cel activ ruleaza bucata curenta, cel de rezerva sta deja pozitionat la inceputul
    urmatoarei bucati dupa o taietura. La taietura isi schimba rolurile -> fara pauza de cautare. */
@@ -545,6 +566,28 @@ function tlRestoreCut(k, only) {
     else if (only) { T.segs[c.i][1] = r3(Math.min(T.segs[c.i + 1][0], T.segs[c.i][1] + only)); }
     else { T.segs[c.i][1] = T.segs[c.i + 1][1]; T.segs.splice(c.i + 1, 1); }
     T.sel = null;
+  });
+}
+/* „🧍 Tu peste el”: fereastra in care apari tu peste fundal */
+const PIP_DEFAULT = { shape: 'rect', w: 0.62, x: 0.5, y: 0.74 };
+function pipPanel(o) {
+  const p = o.pip || PIP_DEFAULT, sh = (k, l) => `<button class="tbtn ${p.shape === k ? 'on' : ''}" data-shape="${k}">${l}</button>`;
+  const sl = (k, l, min, max) => `<label>${l}</label><input type="range" data-pk="${k}" min="${min}" max="${max}" step="0.005" value="${p[k]}"><output data-po="${k}">${Math.round(p[k] * 100)}%</output>`;
+  return `<div class="pipbox"><b>🧍 Fereastra ta</b><span class="sub2" style="margin:0">Poza / clipul e în spate, tu apari aici. Intră și iese lin.</span>
+    <div class="row">${sh('rect', '▭ Dreptunghi')}${sh('circle', '● Cerc')}${sh('tall', '▯ Vertical')}</div>
+    <div class="row"><button class="tbtn" data-ppos="0.5,0.74">⬇ Jos</button><button class="tbtn" data-ppos="0.3,0.76">↙ Stânga jos</button>
+      <button class="tbtn" data-ppos="0.7,0.76">↘ Dreapta jos</button><button class="tbtn" data-ppos="0.5,0.28">⬆ Sus</button></div>
+    <div class="kv">${sl('w', 'Mărime', 0.2, 1)}${sl('x', 'Orizontal', 0, 1)}${sl('y', 'Vertical', 0, 1)}</div></div>`;
+}
+function pipBind(p, o) {
+  o.pip = o.pip || { ...PIP_DEFAULT };
+  p.querySelectorAll('[data-shape]').forEach(b => b.onclick = () => tlChange(() => { o.pip.shape = b.dataset.shape; }));
+  p.querySelectorAll('[data-ppos]').forEach(b => b.onclick = () => tlChange(() => { const [x, y] = b.dataset.ppos.split(',').map(Number); o.pip.x = x; o.pip.y = y; }));
+  let prev = null;
+  p.querySelectorAll('input[data-pk]').forEach(inp => {
+    inp.onpointerdown = () => { prev = tlSnap(); };
+    inp.oninput = () => { o.pip[inp.dataset.pk] = +inp.value; p.querySelector(`[data-po="${inp.dataset.pk}"]`).textContent = Math.round(+inp.value * 100) + '%'; tlPaint(); };
+    inp.onchange = () => { tlCommit(prev || tlSnap()); prev = null; };
   });
 }
 function tlFreeLane(a, b) {
@@ -835,7 +878,7 @@ function tlStageDown(e) {
   e.preventDefault();
   const k = +el.dataset.i, o = T.ovs[k]; if (!o) return;
   T.sel = { kind: 'ov', i: k }; if (T.tab !== 'props') { T.tab = 'props'; tlTabs(); } tlRender(); tlInspector(); tlPaint();
-  if (o.type === 'slot' || o.fit === 'cover') return;
+  if (o.type === 'slot' || o.fit === 'cover' || o.fit === 'bg') return;
   const r = $('#tOvl').getBoundingClientRect(), prev = tlSnap(), m0 = moAt(o, T.t);
   const dx = e.clientX - (r.left + m0.x * r.width), dy = e.clientY - (r.top + m0.y * r.height);
   el.classList.add('drag');
@@ -1066,26 +1109,30 @@ function tlInspector() {
       <div class="kv">
         <label>Apare la</label><input class="tnum" data-n="start" value="${o.start.toFixed(2)}"><span></span>
         <label>Dispare la</label><input class="tnum" data-n="end" value="${o.end.toFixed(2)}"><span></span>
-        ${slider('w', 'Lățime', 0.05, 1.5, 0.01, pct)}
+        ${o.fit === 'bg' ? slider('opacity', 'Opacitate fundal', 0.05, 1, 0.01, pct) : `${slider('w', 'Lățime', 0.05, 1.5, 0.01, pct)}
         ${slider('x', 'Orizontal', 0, 1, 0.005, pct)}
         ${slider('y', 'Vertical', 0, 1, 0.005, pct)}
         ${slider('opacity', 'Opacitate', 0.05, 1, 0.01, pct)}
         ${slider('radius', 'Colțuri rotunjite', 0, 50, 1, v => Math.round(v) + '%')}
-        ${slider('rotation', 'Rotire', -180, 180, 1, v => Math.round(v) + '°')}
+        ${slider('rotation', 'Rotire', -180, 180, 1, v => Math.round(v) + '°')}`}
       </div>
+      ${o.fit === 'bg' ? pipPanel(o) : ''}
       <div class="row" style="margin-top:10px">
         <button class="tbtn ${o.fit === 'cover' ? 'on' : ''}" id="iCover" title="Umple tot cadrul, decupat">⛶ Tot ecranul</button>
+        <button class="tbtn ${o.fit === 'bg' ? 'on' : ''}" id="iBg" title="Poza / clipul umple ecranul în spate, iar tu apari într-o fereastră peste el">🧍 Tu peste el</button>
         <span class="pip"><button class="tbtn" data-pip="0.22,0.14" title="Colț stânga sus">↖</button><button class="tbtn" data-pip="0.78,0.14" title="Colț dreapta sus">↗</button>
         <button class="tbtn" data-pip="0.22,0.62" title="Colț stânga jos">↙</button><button class="tbtn" data-pip="0.78,0.62" title="Colț dreapta jos">↘</button></span></div>
       ${o.prompt ? `<div class="sub2" style="margin:10px 0 0">Prompt folosit: <button class="btn sm" id="iCopyP">📋 Copiază</button></div>` : ''}
       ${vid ? `<label class="chk" style="margin-top:12px"><input type="checkbox" id="iSound" ${o.muted === false ? 'checked' : ''}>Păstrează sunetul clipului</label>` : ''}
-      ${o.fit === 'cover' ? '' : moKeyRow(o)}
+      ${o.fit === 'cover' || o.fit === 'bg' ? '' : moKeyRow(o)}
       <div class="row">
         <button class="tbtn" id="iUp" title="Pune-o deasupra">⬆ În față</button><button class="tbtn" id="iDown" title="Pune-o dedesubt">⬇ În spate</button>
         <button class="tbtn" id="iRot90">↻ 90°</button>
         <button class="tbtn" id="iDup">⧉ Duplică</button><button class="tbtn" id="iDel">🗑 Șterge</button>
       </div>`;
-    if (o.fit !== 'cover') moBindKeys(p, o);
+    if (o.fit !== 'cover' && o.fit !== 'bg') moBindKeys(p, o);
+    if (o.fit === 'bg') pipBind(p, o);
+    $('#iBg').onclick = () => tlChange(() => { if (o.fit === 'bg') { o.fit = 'free'; if (o.w > 0.95) o.w = 0.8; } else { o.fit = 'bg'; o.pip = o.pip || { ...PIP_DEFAULT }; } });
     $('#iRot90').onclick = () => tlChange(() => { o.rotation = ((((o.rotation || 0) + 90) + 540) % 360) - 180; });
     let prev = null;
     p.querySelectorAll('input[type=range][data-k]').forEach(inp => {

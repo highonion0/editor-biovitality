@@ -12,12 +12,14 @@ export type CaptionStyle = {
   box_color: string; box_opacity: number; pos_x: number; pos_y: number;
   anim?: 'none' | 'highlight' | 'pop' | 'reveal' | 'pill' | 'single'; anim_color?: string;
 };
+export type Pip = {shape: 'rect' | 'circle' | 'tall'; w: number; x: number; y: number};
 export type FontDef = {id: string; ratio: number; files: [string, number, string][]};
 export type Overlay = {
   type: 'image' | 'video' | 'graphic'; src?: string; start: number; end: number;
   template?: string; props?: Record<string, string | boolean>;
   x: number; y: number; w: number; opacity?: number; muted?: boolean; source_start?: number;
-  rotation?: number; radius?: number; ar?: number; lane?: number; fit?: 'cover' | 'free';
+  rotation?: number; radius?: number; ar?: number; lane?: number; fit?: 'cover' | 'free' | 'bg';
+  pip?: Pip;            // doar pentru fit = 'bg': fereastra in care apari tu, peste acest fundal
   keys?: Keyframe[]; anim_in?: AnimKind; anim_out?: AnimKind; anim_dur?: number;
 };
 export type AudioItem = {
