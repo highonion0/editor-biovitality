@@ -16,8 +16,15 @@ function lkMatrix(c) {
 }
 const lkNeutral = c => Math.abs(c.brightness) < 1e-3 && Math.abs(c.contrast - 1) < 1e-3 && Math.abs(c.saturation - 1) < 1e-3 && Math.abs(c.temperature) < 1e-3 && Math.abs(c.tint) < 1e-3;
 
+// volumul vocii: cat timp n-ai apasat „Aplica si asculta”, il simulez pe player (fata de ce e deja in previzualizare)
+function lkVolumeLive() {
+  let base = 1; try { base = (JSON.parse(LK.applied || '{}').volume) || 1; } catch (e) { /* cheie veche */ }
+  const v = (T.look && T.look.audio && T.look.audio.volume) || 1;
+  (T.vids || []).forEach(el => { if (el) el.volume = clamp(v / base, 0, 1); });
+}
 function lkApply(off) {
   if (!T.look) return;
+  lkVolumeLive();
   const c = T.look.color, none = off || lkNeutral(c);
   const m = $('#tGradeM'); if (m && !none) m.setAttribute('values', lkMatrix(c).flat().map(v => +v.toFixed(5)).join(' '));
   LK.off = !!off;                       // „Ține apăsat: înainte”
@@ -48,6 +55,9 @@ function renderLook() {
       <input type="checkbox" id="lkClear" ${a.clear ? 'checked' : ''}><span class="sw"></span></label>
     <label class="tog" style="margin-top:8px"><span><b style="font-size:13.5px">Volum uniform (−14 LUFS)</b><br><small style="color:var(--muted)">Nivelul standard TikTok / Instagram: toate video-urile sună la fel de tare</small></span>
       <input type="checkbox" id="lkLoud" ${a.loudness ? 'checked' : ''}><span class="sw"></span></label>
+    <div class="lkrow" style="margin-top:10px"><label>Volum voce · <b id="lkVolO">${Math.round((a.volume || 1) * 100)}%</b></label>
+      <input type="range" id="lkVol" min="0.1" max="2" step="0.05" value="${a.volume || 1}"><span class="lkends"><em>mai încet</em><em>100% = neschimbat</em><em>mai tare</em></span></div>
+    <div class="hint" style="margin:0">Mai încet = și zgomotul rămas se aude mai puțin. Se aplică după curățare și după „Volum uniform”.</div>
     <div class="row"><button class="${pending ? 'cta' : 'tbtn'}" id="lkListen">🎧 ${pending ? 'Aplică și ascultă' : 'Sunetul din previzualizare e la zi'}</button>
       <span class="hint" style="margin:0" id="lkSt">${pending ? 'Ai schimbat sunetul — apasă ca să-l auzi.' : ''}</span></div>
     <div class="lkfoot"><button class="btn sm" id="lkSaveDef">★ Păstrează look-ul pentru video-urile noi</button>
@@ -68,6 +78,10 @@ function renderLook() {
   $('#lkNr').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; tlChange(() => { a.denoise = b.dataset.v; }); renderLook(); };
   $('#lkClear').onchange = e => { tlChange(() => { a.clear = e.target.checked; }); renderLook(); };
   $('#lkLoud').onchange = e => { tlChange(() => { a.loudness = e.target.checked; }); renderLook(); };
+  const vol = $('#lkVol'); let vprev = null;
+  vol.onpointerdown = () => { vprev = tlSnap(); };
+  vol.oninput = () => { a.volume = +vol.value; $('#lkVolO').textContent = Math.round(a.volume * 100) + '%'; lkVolumeLive(); };
+  vol.onchange = () => { tlCommit(vprev || tlSnap()); vprev = null; renderLook(); };
   $('#lkListen').onclick = lkListen;
   $('#lkSaveDef').onclick = async () => {
     const r = await fetch('/api/look-default', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(T.look) })
@@ -93,5 +107,5 @@ async function lkListen() {
   const t = T.t, was = T.playing; tlPause();
   T.vids.forEach(v => { v.src = r.url; });
   T.vids[0].addEventListener('loadedmetadata', () => { tlSeek(t); lkApply(); if (was) tlPlay(); }, { once: true });
-  LK.applied = key; renderLook(); toast('Ascultă acum: previzualizarea are sunetul nou.');
+  LK.applied = key; lkVolumeLive(); renderLook(); toast('Ascultă acum: previzualizarea are sunetul nou.');
 }

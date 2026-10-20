@@ -475,8 +475,8 @@ function statusText(j) {
   if (j.status === 'draft') return 'Pregătit · adaugă scriptul și pornește';
   if (j.status === 'queued') return 'În așteptare';
   if (j.status === 'error') return 'Eroare';
-  if (j.status === 'done' && toEdit(j)) return 'Gata de editat · deschide Timeline-ul';
-  if (j.status === 'done') return j.cut_from && j.cut_to != null ? `Gata · ${j.cut_from}s → ${j.cut_to}s` : 'Gata';
+  if (j.status === 'done' && toEdit(j)) return 'Gata de editat' + (j.has_draft ? ' · 📝 ciornă' : ' · deschide Timeline-ul');
+  if (j.status === 'done') return (j.cut_from && j.cut_to != null ? `Gata · ${j.cut_from}s → ${j.cut_to}s` : 'Gata') + (j.has_draft ? ' · 📝 ciornă' : '');
   if (j.status === 'running' && j.stage) {
     const s = j.stages[j.stage - 1];
     return `${s.label}${s.progress != null ? ' · ' + Math.round(s.progress) + '%' : '…'}`;
@@ -1077,8 +1077,13 @@ function capWordsHTML(st, cue, t) {
 // t = momentul curent, pe acelasi timp ca fraza (pentru animatia cuvant cu cuvant)
 function capPaint(box, st, words, H, t, cue) {
   const f = fontInfo(st.font);
-  box.style.display = words ? '' : 'none';
-  if (words) box.innerHTML = `<span class="cl">${capWordsHTML(st, cue || { words, start: 0, end: 0 }, cue ? t : null)}</span>`;
+  const disp = words ? '' : 'none'; if (box.style.display !== disp) box.style.display = disp;
+  // la redare se cheama la fiecare cadru: rescriu textul / stilul doar cand s-a schimbat (cuvantul activ, stilul)
+  const html = words ? `<span class="cl">${capWordsHTML(st, cue || { words, start: 0, end: 0 }, cue ? t : null)}</span>` : '';
+  if (words && box._html !== html) { box._html = html; box.innerHTML = html; }
+  const key = JSON.stringify(st) + '|' + H;
+  if (box._key === key) return;
+  box._key = key;
   const o = st.outline / 100 * H;
   Object.assign(box.style, {
     left: st.pos_x * 100 + '%', top: st.pos_y * 100 + '%', maxWidth: '84%',

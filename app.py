@@ -119,6 +119,7 @@ def create_job(name, path, cfg, status="queued"):
         "cut_from": None, "cut_to": None, "device": None, "files": {}, "error": None,
         "edit": not cfg.get("autocut", True), "task": None,      # edit = „✏ Editez eu” (nu se randeaza la procesare)
         "caps_next": False,                                       # „Editez eu”: subtitrarile vin din pregatirea din fundal
+        "has_draft": False,                                       # modificari din Timeline salvate doar ca ciorna
         "media": "input", "folder": None, "created": time.time(), "finished": None,
         "settings_view": core.settings_summary(cfg),
         "path": str(path), "dir": None, "segments": [], "log": [], "settings": cfg,
@@ -244,7 +245,7 @@ def load_existing_projects():
         job.update(dir=str(d), folder=d.name, files=files, stage=3, media="final" if files.get("final") else "cut",
                    cut_from=meta.get("cut_from") or (round(float(pr.get("source_duration") or 0), 1) if files.get("cut") else None),
                    cut_to=meta.get("cut_to") or (round(core.seg_total(pr.get("segments") or []), 1) if files.get("cut") else None),
-                   edit=not cfg.get("autocut", True),
+                   edit=not cfg.get("autocut", True), has_draft=(d / DRAFT_FILE).exists(),
                    device=meta.get("device"), finished=meta.get("finished") or d.stat().st_mtime,
                    settings_view=meta.get("settings_view") or core.settings_summary(cfg))
         # transcrierea (pentru panoul „Transcript” si „Copiaza textul”), refacuta din subtitrarile proiectului
@@ -1030,11 +1031,17 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json(limit=16 * 1024 * 1024)
             if body is None or body.get("discard"):
                 df.unlink(missing_ok=True)
+                if job.get("has_draft"):
+                    job["has_draft"] = False
+                    emit(job)
                 return self._json({"ok": True, "discarded": True})
             body["saved_at"] = time.time()
             tmp = df.with_suffix(".tmp")
             tmp.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(df)                      # scriere sigura: niciodata o ciorna pe jumatate
+            core.replace_file(tmp, df)           # scriere sigura: niciodata o ciorna pe jumatate
+            if not job.get("has_draft"):         # in lista: „📝 ciornă” (modificari care nu sunt inca in video)
+                job["has_draft"] = True
+                emit(job)
             return self._json({"ok": True, "saved_at": body["saved_at"]})
         if len(parts) == 3 and parts[:2] == ["api", "timeline"]:
             job = jobs.get(parts[2])
@@ -1047,6 +1054,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 return self._json({"error": "Date invalide."}, 400)
             (Path(job["dir"]) / DRAFT_FILE).unlink(missing_ok=True)
+            job["has_draft"] = False
             job["status"], job["stage"] = "running", 1
             job["stages"][0].update(status="active", progress=0, detail="La rând…")
             job["stages"][2].update(status="pending", progress=0, detail="")

@@ -80,7 +80,7 @@ async function openTimeline(j) {
   });
   LK.presets = d.look_presets || {}; LK.def = d.look_default || null; LK.applied = JSON.stringify(T.look.audio);
   S.rendered = null; renderMain();
-  if (d.draft) tlOfferDraft(d.draft);
+  if (d.draft) tlLoadDraft(d.draft);
   fetch(`/api/filmstrip/${j.id}`).then(r => r.json()).then(m => {
     if (m.error) return; const img = new Image(); img.onload = () => { T.film = m; T.filmImg = img; tlDrawClips(); }; img.src = m.url;
   }).catch(() => {});
@@ -108,10 +108,22 @@ async function tlOnJob(j) {
   T.vids.forEach(v => { v.src = T.src; });
   T.vids[0].addEventListener('loadedmetadata', () => { tlSeek(t); if (was) tlPlay(); }, { once: true });
 }
+// iesi sau treci la alt video: modificarile nesalvate raman in ciorna si se incarca singure cand revii
 function leaveTimeline() {
-  if (T.dirty && !confirm('Ai modificări care nu sunt încă în video. Ies acum? Rămân păstrate ca ciornă și le poți recupera când revii.')) return false;
-  clearTimeout(T.asTimer); if (T.dirty) tlAutosave();
+  clearTimeout(T.asTimer);
+  if (T.dirty) { tlAutosave(); toast('📝 Ciorna e salvată: o regăsești exact așa când revii la video.'); }
   tlPause(); T.on = false; T.ovEls = new Map(); T.auEls = new Map(); S.rendered = null; return true;
+}
+async function tlDraftSave() {
+  clearTimeout(T.asTimer);
+  if (!T.dirty) { toast('Nu ai modificări nesalvate — totul e deja în video.'); return; }
+  const id = T.id;
+  const r = await fetch(`/api/timeline-draft/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tlState()) }).then(r => r.json()).catch(() => null);
+  if (!r || !r.ok) { toast('Nu am putut salva ciorna.'); return; }
+  const hh = new Date(r.saved_at * 1000).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+  const d = $('#tDirty'); if (d && T.on && T.id === id) d.textContent = `📝 Ciornă salvată ${hh} · nu e încă în video`;
+  toast(`📝 Ciorna e salvată (${hh}). Poți trece la alt video — când revii, o găsești exact așa.`);
 }
 
 /* ---------------------------------------------------------------- schelet */
@@ -125,6 +137,7 @@ function buildTimeline() {
       <span class="dirty" id="tDirty"></span>
       <button class="btn sm" id="tUndo" title="Anulează (Ctrl+Z)">↶ Anulează</button>
       <button class="btn sm" id="tRedo" title="Refă (Ctrl+Y)">↷ Refă</button>
+      <button class="btn" id="tDraftSave" title="Păstrează modificările fără să randezi (Ctrl+S). Poți trece la alt video și reveni oricând.">💾 Salvează ciorna</button>
       <button class="btn primary" id="tSave">${ICON.check}Salvează și randează</button>
     </div>
     <div class="tltop">
@@ -177,6 +190,7 @@ function buildTimeline() {
     <input type="file" id="tPick" accept="image/*,video/*,audio/*,.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.m4v,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg,.flac" multiple hidden>`;
   $('#tBack').onclick = () => { if (leaveTimeline()) renderAll(); };
   $('#tSave').onclick = tlSave;
+  $('#tDraftSave').onclick = tlDraftSave;
   tlPrepUI();
   $('#tUndo').onclick = () => tlHistory(-1);
   $('#tRedo').onclick = () => tlHistory(1);
@@ -343,17 +357,24 @@ function tlDrawClips() {
     }
   });
 }
+// scrie stilul doar daca s-a schimbat ceva (la redare, tlPaint ruleaza la fiecare cadru)
+function tlStyle(el, st, slot) {
+  const k = JSON.stringify(st), s = slot || '_sk';
+  if (el[s] !== k) { el[s] = k; Object.assign(el.style, st); }
+}
 function tlPlayhead() {
   const p = $('#tPhead'); if (!p) return;
-  p.style.left = xOf(T.t) + 'px';
-  $('#tTC').innerHTML = `<b>${fmtTC(T.t)}</b> / ${fmtTC(tlTotal())}`;
+  const x = xOf(T.t);
+  if (p._x !== x) { p._x = x; p.style.transform = `translateX(${x}px)`; }     // transform: fara redesenarea pistelor
+  const tc = $('#tTC'), h = `<b>${fmtTC(T.t)}</b> / ${fmtTC(tlTotal())}`;
+  if (tc && tc._h !== h) { tc._h = h; tc.innerHTML = h; }
 }
 
 /* ---------------------------------------------------------------- previzualizare */
 function tlPaint() {
   if (!T.on) return;
   const stage = $('#tStage'); if (!stage) return;
-  const H = stage.clientHeight, total = tlTotal();
+  const SW = stage.clientWidth, H = stage.clientHeight, total = tlTotal();   // citite o data (nu dupa fiecare scriere)
   // suprapuneri
   const ovl = $('#tOvl'), bgl = $('#tBgL'), seen = new Set();
   T.ovs.forEach((o, k) => {
@@ -380,19 +401,21 @@ function tlPaint() {
     }
     const host = o.fit === 'bg' && bgl ? bgl : ovl;                // fundal = sub video-ul tau
     if (el.parentElement !== host) host.appendChild(el);
-    el.dataset.i = k;
+    if (el.dataset.i !== String(k)) el.dataset.i = k;
     const vis = T.t >= o.start && T.t < Math.min(o.end, total);
     const full = o.type === 'slot' || o.fit === 'cover';          // pe tot cadrul
-    const m = moAt(o, T.t);                                        // keyframes + animatii de intrare/iesire
-    if (o.fit === 'bg') {                                          // fundal: poza intreaga / decupata, cu marime si pozitie
-      const r = moBgRect(o.bgimg || BG_DEFAULT, o.ar || 1, stage.clientWidth, stage.clientHeight);
-      Object.assign(el.style, { display: vis ? 'block' : 'none', left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px',
+    if (!vis) {                                                    // ascunsa: nimic de calculat sau de scris
+      if (el.style.display !== 'none') { el.style.display = 'none'; el._sk = null; }
+    } else if (o.fit === 'bg') {                                   // fundal: poza intreaga / decupata, cu marime si pozitie
+      const m = moAt(o, T.t), r = moBgRect(o.bgimg || BG_DEFAULT, o.ar || 1, SW, H);
+      tlStyle(el, { display: 'block', left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px',
         objectFit: 'fill', opacity: m.opacity, zIndex: 0, transform: 'none', borderRadius: '0' });
     } else {
-    const wpx = full ? stage.clientWidth : m.w * stage.clientWidth, hpx = full ? stage.clientHeight : wpx * (o.ar || 1);
-    Object.assign(el.style, { display: vis ? 'block' : 'none', left: full ? '50%' : m.x * 100 + '%', top: full ? '50%' : m.y * 100 + '%',
-      width: wpx + 'px', height: hpx + 'px', objectFit: full ? 'cover' : 'fill', opacity: m.opacity, zIndex: 10 + (o.lane || 0),
-      transform: `translate(-50%, -50%) rotate(${full ? 0 : m.rotation}deg)`, borderRadius: full ? '0' : ((o.radius || 0) / 100) * Math.min(wpx, hpx) + 'px' });
+      const m = moAt(o, T.t);                                      // keyframes + animatii de intrare/iesire
+      const wpx = full ? SW : m.w * SW, hpx = full ? H : wpx * (o.ar || 1);
+      tlStyle(el, { display: 'block', left: full ? '50%' : m.x * 100 + '%', top: full ? '50%' : m.y * 100 + '%',
+        width: wpx + 'px', height: hpx + 'px', objectFit: full ? 'cover' : 'fill', opacity: m.opacity, zIndex: 10 + (o.lane || 0),
+        transform: `translate(-50%, -50%) rotate(${full ? 0 : m.rotation}deg)`, borderRadius: full ? '0' : ((o.radius || 0) / 100) * Math.min(wpx, hpx) + 'px' });
     }
     if (o.type === 'slot') {
       const sig = (o.idea || '') + '|' + fmtTC(o.start) + fmtTC(o.end);
@@ -400,11 +423,14 @@ function tlPaint() {
         <small>${fmtTC(o.start)} – ${fmtTC(o.end)} · trage clipul din DaVinci aici</small></div>`; }
     }
     if (o.type === 'graphic' && el._g && vis) {
-      const fps = T.pr.fps, f = Math.round((T.t - o.start) * fps), d = Math.max(1, Math.round((o.end - o.start) * fps));
+      // la redare, grafica se redeseneaza de ~20 de ori pe secunda (destul pentru previzualizare; randarea finala e la fps-ul intreg)
+      const fps = T.pr.fps, step = T.playing ? Math.max(1, Math.round(fps / 20)) : 1;
+      const f = Math.round((T.t - o.start) * fps / step) * step, d = Math.max(1, Math.round((o.end - o.start) * fps));
       const sig = f + '|' + d + '|' + JSON.stringify(o.props);
       if (el._sig !== sig) { el._sig = sig; el._g.render(o.template, o.props || {}, f, d, fps); }
     }
-    el.classList.toggle('sel', !!(T.sel && T.sel.kind === 'ov' && T.sel.i === k));
+    const isSel = !!(T.sel && T.sel.kind === 'ov' && T.sel.i === k);
+    if (el.classList.contains('sel') !== isSel) el.classList.toggle('sel', isSel);
     if (o.type === 'video') {
       el.muted = o.muted !== false;
       const want = (o.source_start || 0) + (T.t - o.start);
@@ -419,7 +445,7 @@ function tlPaint() {
     const show = so && so.type !== 'slot' && so.fit !== 'cover' && so.fit !== 'bg' && T.t >= so.start && T.t < so.end && !T.playing;
     box.style.display = show ? 'block' : 'none';
     if (show) {
-      const m = moAt(so, T.t), wpx = m.w * stage.clientWidth;
+      const m = moAt(so, T.t), wpx = m.w * SW;
       Object.assign(box.style, { left: m.x * 100 + '%', top: m.y * 100 + '%', width: wpx + 'px', height: wpx * (so.ar || 1) + 'px',
         transform: `translate(-50%, -50%) rotate(${m.rotation}deg)` });
     }
@@ -452,24 +478,24 @@ function tlPaint() {
     const src = tlOutToSrc(T.t).src, cue = cap.cues.find(c => !c.hidden && src >= c.start && src < c.end);
     capPaint(capEl, cap.style, cue ? cue.words : null, H, src, cue);
   } else capEl.style.display = 'none';
-  moPaintVideo();
+  moPaintVideo(SW, H);
   tlPlayhead();
 }
 
 /* zoom-ul si tranzitiile, pe playerele video (aceleasi formule ca la randare) */
-function moPaintVideo() {
+function moPaintVideo(SW, SH) {
   const wrap = $('#tVids'); if (!wrap) return;
   // „tu peste el”: video-ul tau intra intr-o fereastra peste fundal (aceleasi formule ca la randare)
-  const stage = $('#tStage'), r = stage ? moMainRect(T.t, stage.clientWidth, stage.clientHeight) : null;
+  const stage = $('#tStage');
+  if (SW == null && stage) { SW = stage.clientWidth; SH = stage.clientHeight; }
+  const r = stage ? moMainRect(T.t, SW, SH) : null;
   const bgo = T.ovs.find(x => x.fit === 'bg' && T.t >= x.start && T.t < x.end), bgl = $('#tBgL');
-  if (bgl) bgl.style.background = bgo ? (bgo.bgimg || BG_DEFAULT).color : 'transparent';
-  Object.assign(wrap.style, r ? { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', right: 'auto', bottom: 'auto',
+  if (bgl) tlStyle(bgl, { background: bgo ? (bgo.bgimg || BG_DEFAULT).color : 'transparent' });
+  tlStyle(wrap, r ? { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', right: 'auto', bottom: 'auto',
     borderRadius: r.r + 'px', overflow: 'hidden', boxShadow: '0 8px 26px rgba(0,0,0,.45)' }
-    : { left: '', top: '', width: '', height: '', right: '', bottom: '', borderRadius: '', overflow: '', boxShadow: '' });
-  wrap.querySelectorAll('video.main').forEach(v => {
-    const pos = r ? `${r.fx * 100}% ${r.fy * 100}%` : '';
-    Object.assign(v.style, { objectFit: r ? 'cover' : '', objectPosition: pos, transform: r ? `scale(${r.zoom})` : '', transformOrigin: pos });
-  });
+    : { left: '', top: '', width: '', height: '', right: '', bottom: '', borderRadius: '', overflow: '', boxShadow: '' }, '_sk1');
+  const pos = r ? `${r.fx * 100}% ${r.fy * 100}%` : '';
+  (T.vids || []).forEach(v => tlStyle(v, { objectFit: r ? 'cover' : '', objectPosition: pos, transform: r ? `scale(${r.zoom})` : '', transformOrigin: pos }, '_sk1'));
   // decupat: video-ul tau ramane doar pentru sunet, iar peste fundal apare clipul transparent
   const cv = $('#tCutV'), co = r && bgo && bgo.pip && bgo.pip.shape === 'cut' ? bgo : null, cut = co && cutReady(co);
   if (cv) {
@@ -484,17 +510,16 @@ function moPaintVideo() {
   }
   const z = moZoomAt(T.t), tr = moTransAt(T.t);
   const sc = (z ? z.s : 1) * (tr.style.scale || 1);
-  wrap.style.transform = z ? `scale(${sc}) translate(${z.ox / sc}%, ${z.oy / sc}%)` : (sc !== 1 ? `scale(${sc})` : '');
   const hideMain = $('#tCutV') && $('#tCutV').style.display === 'block';      // decupat: se vede doar clipul transparent
-  wrap.style.opacity = hideMain ? 0 : tr.style.opacity != null ? tr.style.opacity : 1;
   const grade = T.look && !LK.off && !lkNeutral(T.look.color) ? 'url(#tGrade) ' : '';
-  wrap.style.filter = (grade + (tr.style.blur ? `blur(${tr.style.blur.toFixed(2)}px)` : '')).trim() || 'none';
-  const fl = $('#tFlash'); if (fl) { fl.style.opacity = tr.flash ? (tr.flash * 0.85).toFixed(3) : 0; }
+  tlStyle(wrap, { transform: z ? `scale(${sc}) translate(${z.ox / sc}%, ${z.oy / sc}%)` : (sc !== 1 ? `scale(${sc})` : ''),
+    opacity: hideMain ? 0 : tr.style.opacity != null ? tr.style.opacity : 1,
+    filter: (grade + (tr.style.blur ? `blur(${tr.style.blur.toFixed(2)}px)` : '')).trim() || 'none' }, '_sk2');
+  const fl = $('#tFlash'); if (fl) tlStyle(fl, { opacity: tr.flash ? (tr.flash * 0.85).toFixed(3) : 0 });
   const zt = $('#tZoomPt');
   if (zt) {
     const sel = T.sel && T.sel.kind === 'zoom' ? T.zooms[T.sel.i] : null;
-    zt.style.display = sel && !T.playing ? 'block' : 'none';
-    if (sel) { zt.style.left = sel.x * 100 + '%'; zt.style.top = sel.y * 100 + '%'; }
+    tlStyle(zt, sel && !T.playing ? { display: 'block', left: sel.x * 100 + '%', top: sel.y * 100 + '%' } : { display: 'none' });
   }
 }
 function moPipRect(pip, W, H) {    // ca core.pip_rect
@@ -576,9 +601,10 @@ function tlLoop() {
     }
   }
   T.t = tlStarts()[T.seg] + clamp(src - T.segs[T.seg][0], 0, T.segs[T.seg][1] - T.segs[T.seg][0]);
+  const sc = $('#tScroll'), x = xOf(T.t);                    // citesc derularea INAINTE sa scriu stiluri (altfel browserul
+  if (sc) { const sl = sc.scrollLeft, cw = sc.clientWidth;   // reface asezarea paginii la fiecare cadru)
+    if (x < sl || x > sl + cw - 40) sc.scrollLeft = x - 60; }
   tlPaint();
-  const sc = $('#tScroll'), x = xOf(T.t);
-  if (sc && (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 40)) sc.scrollLeft = x - 60;
   requestAnimationFrame(tlLoop);
 }
 
@@ -1407,7 +1433,8 @@ function tlInspector() {
       <div class="keys"><kbd>Space</kbd><span>play / pauză</span><kbd>Z</kbd><span>zoom la cursor</span><kbd>S</kbd><span>taie bucata la cursor</span><kbd>Alt ←/→</kbd><span>mută bucata selectată</span>
         <kbd>Delete</kbd><span>șterge ce e selectat</span><kbd>← →</kbd><span>un cadru (Shift = o secundă)</span>
         <kbd>Ctrl+C / V</kbd><span>copiază / lipește la cursor</span>
-        <kbd>Ctrl+Z / Y</kbd><span>anulează / refă</span></div>
+        <kbd>Ctrl+Z / Y</kbd><span>anulează / refă</span>
+        <kbd>Ctrl+S</kbd><span>salvează ciorna (fără randare)</span></div>
       ${T.assets.length ? `<div class="sub2" style="margin:16px 0 0">Materialele tale — click ca să adaugi la cursor:</div>
       <div class="assets">${T.assets.map((a, k) => `<button class="asset" data-a="${k}"><div class="th" style="${a.type === 'image' ? `background-image:url('${T.assetBase}/${encodeURIComponent(a.asset)}')` : ''}">${a.type === 'video' ? '🎬 video' : a.type === 'audio' ? '♪ sunet' : ''}</div><small>${esc(a.asset)}</small></button>`).join('')}</div>` :
       `<div class="sub2" style="margin:16px 0 0">Trage poze, video-uri sau melodii (MP3, WAV…) direct în fereastră.</div>`}`;
@@ -1436,12 +1463,14 @@ async function tlAutosave() {
     d.textContent = `● Nesalvat în video · ciornă păstrată ${hh}`;
   }
 }
-function tlOfferDraft(draft) {
+// ciorna (modificarile nesalvate in video) se incarca singura; „Renunță la ciornă” te duce la ultima varianta randata
+function tlLoadDraft(draft) {
   const head = document.querySelector('.tlhead'); if (!head || !draft) return;
   const when = new Date(draft.saved_at * 1000).toLocaleString('ro-RO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  head.insertAdjacentHTML('afterend', `<div class="draftbar" id="tDraftBar"><span>🛟 Ai modificări nesalvate din <b>${esc(when)}</b> (ciornă păstrată automat).</span>
-    <button class="btn sm primary" id="tDraftUse">Recuperează-le</button><button class="btn sm" id="tDraftDrop">Renunță la ele</button></div>`);
-  $('#tDraftUse').onclick = () => {
+  head.insertAdjacentHTML('afterend', `<div class="draftbar" id="tDraftBar"><span>📝 Am încărcat ciorna ta din <b>${esc(when)}</b>.
+    Nu e încă în video: apasă „Salvează și randează” când e gata.</span>
+    <button class="btn sm" id="tDraftDrop">Renunță la ciornă</button></div>`);
+  {
     tlChange(() => {
       if (Array.isArray(draft.segments) && draft.segments.length) T.segs = draft.segments;
       if (Array.isArray(draft.overlays)) T.ovs = draft.overlays;
@@ -1455,17 +1484,20 @@ function tlOfferDraft(draft) {
       if (Array.isArray(draft.zooms)) T.zooms = draft.zooms;
       if (draft.transitions) T.trans = draft.transitions;
     });
-    lkApply(); $('#tDraftBar').remove(); tlTabs(); toast('Am recuperat modificările. Apasă „Salvează și randează” ca să intre în video.');
-  };
+    clearTimeout(T.asTimer); T.undo = []; T.redo = []; tlDirtyUI();     // ciorna e punctul de plecare (nu „Anulează” peste ea)
+    lkApply(); tlTabs();
+  }
   $('#tDraftDrop').onclick = async () => {
-    if (!confirm('Renunți definitiv la modificările din ciornă?')) return;
+    if (!confirm('Renunți definitiv la ciornă? Revii la ultima variantă randată a video-ului.')) return;
     await fetch(`/api/timeline-draft/${T.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discard: true }) });
-    $('#tDraftBar').remove(); toast('Am șters ciorna.');
+    T.dirty = false; T.on = false; toast('Am șters ciorna.');
+    openTimeline({ id: T.id, name: T.name });
   };
 }
 
 /* ---------------------------------------------------------------- tastatura + salvare */
 document.addEventListener('keydown', e => {
+  if (T.on && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); tlDraftSave(); return; }   // Ctrl+S = ciorna
   if (!T.on || e.target.closest('input,textarea')) return;
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
   if (k === ' ') { e.preventDefault(); if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur(); T.playing ? tlPause() : tlPlay(); }

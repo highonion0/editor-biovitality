@@ -118,14 +118,17 @@ Timpii cuvintelor vin din transcriere; la proiectele vechi și la cuvintele resc
 - Sub video în Timeline: **Zone sigure** Oprit / TikTok / Reels / Shorts / Toate → vezi ce acoperă interfața aplicației.
   În Proprietăți (nimic selectat) apare lista elementelor care intră sub interfață, cu **Mută în zona sigură**.
   Valorile sunt conservatoare; platformele își mai schimbă interfața, deci verifică și la publicare.
-- **Salvare automată**: fiecare modificare din Timeline se păstrează ca ciornă după ~1 s. Dacă închizi aplicația sau pică,
-  la redeschidere apare **🛟 Recuperează-le**. La „Salvează și randează” ciorna se șterge singură.
+- **💾 Salvează ciorna** (sau **Ctrl+S**): păstrează modificările fără să randezi, ca să treci la alt video și să revii.
+  În listă, video-ul arată „📝 ciornă”. Când revii, ciorna se încarcă singură („Renunță la ciornă” te duce la ultima variantă
+  randată). Oricum, fiecare modificare se salvează singură după ~1 s, iar ieșirea din Timeline nu mai întreabă nimic.
+  La „Salvează și randează” ciorna se șterge singură.
 
 ## 🎨 Look: culoare și sunet (tab în Timeline)
 - **Culoare** (doar pe video-ul tău): filtre Original / Natural / Cald / Luminos / Cinematic / Alb-negru, apoi
   luminozitate, contrast, saturație, temperatură, nuanță. Se vede instant; „Ține apăsat: înainte” compară cu originalul.
-- **Sunet**: reducere zgomot (Ușor / Mediu / Puternic), **Voce clară**, **Volum uniform −14 LUFS** (standardul TikTok/IG).
-  **🎧 Aplică și ascultă** îl pune în previzualizare.
+- **Sunet**: reducere zgomot (Ușor / Mediu / Puternic), **Voce clară**, **Volum uniform −14 LUFS** (standardul TikTok/IG)
+  și **Volum voce** (10%–200%, după curățare — mai încet = și zgomotul rămas se aude mai puțin).
+  Volumul se aude imediat când muți glisorul; **🎧 Aplică și ascultă** pune tot sunetul curățat în previzualizare.
 - **★ Păstrează look-ul pentru video-urile noi** → toate video-urile următoare pornesc cu aceeași culoare și același sunet.
 Totul intră în Ctrl+Z și se salvează cu „Salvează și randează”.
 

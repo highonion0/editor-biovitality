@@ -1478,7 +1478,8 @@ def clean_look(raw):
              "saturation": round(_num(c.get("saturation"), 0, 2, 1), 3), "temperature": round(_num(c.get("temperature"), -1, 1, 0), 3),
              "tint": round(_num(c.get("tint"), -1, 1, 0), 3)}
     audio = {"denoise": a.get("denoise") if a.get("denoise") in ("off", "usor", "mediu", "puternic") else "off",
-             "clear": bool(a.get("clear")), "loudness": bool(a.get("loudness"))}
+             "clear": bool(a.get("clear")), "loudness": bool(a.get("loudness")),
+             "volume": round(_num(a.get("volume"), 0.1, 2.0, 1.0), 2)}   # volumul vocii, dupa curatare (1 = neschimbat)
     return {"color": color, "audio": audio}
 
 def load_default_look():
@@ -1534,6 +1535,11 @@ def audio_chain(a):
         f.append(f"agate=threshold=0.015:ratio=4:range={ {'usor': 0.25, 'mediu': 0.1, 'puternic': 0.06}[d] }:attack=5:release=250")
     if a["loudness"]:
         f.append("loudnorm=I=-14:TP=-1.5:LRA=11")
+    vol = a.get("volume", 1.0)
+    if abs(vol - 1) > 0.005:                    # la final: si dupa „Volum uniform” poti da mai incet / mai tare
+        f.append(f"volume={vol:.2f}")
+        if vol > 1:
+            f.append("alimiter=limit=0.97:level=disabled")   # mai tare fara sa „crape”
     return ",".join(f)
 
 def processed_audio(job_dir, project):
