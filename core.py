@@ -55,7 +55,8 @@ DEFAULTS = {
     "burn_captions": True,
     "vocabulary": "BioVitality",
     "auto_start": False,       # False = dupa incarcare astept scriptul si butonul „Porneste”
-    "autocut": True,           # False = nu tai nimic la procesare (video-ul ramane intreg, il editezi tu in Timeline)
+    "autocut": True,           # False = „✏ Editez eu”: nu tai si nu randez la procesare; il editezi tu in Timeline
+    "captions_now": True,      # „Editez eu”: subtitrarile se fac acum (False = le adaugi mai tarziu, din Timeline)
     "script": "",
     "script_captions": True,   # subtitrarile iau textul exact din script
     "script_retakes": True,    # scot reluarile, pastrez ultima dubla
@@ -335,7 +336,7 @@ def merge_settings(raw):
     if "burn_captions" in raw: cfg["burn_captions"] = bool(raw["burn_captions"])
     if isinstance(raw.get("vocabulary"), str): cfg["vocabulary"] = raw["vocabulary"][:300]
     if isinstance(raw.get("script"), str): cfg["script"] = raw["script"].strip()[:30000]
-    for k in ("auto_start", "autocut", "script_captions", "script_retakes", "script_offscript"):
+    for k in ("auto_start", "autocut", "captions_now", "script_captions", "script_retakes", "script_offscript"):
         if isinstance(raw.get(k), bool): cfg[k] = raw[k]
     return cfg
 
@@ -355,8 +356,9 @@ def margin_label(cfg):
     return f"respiro {_fmt_sec(a)} / {_fmt_sec(b)}"
 
 def settings_summary(cfg):
-    parts = [LANG_NAMES[cfg["language"]], QUALITY_NAMES[cfg["quality"]],
-             margin_label(cfg) if cfg.get("autocut", True) else "fără tăiere automată"]
+    edit = not cfg.get("autocut", True)
+    parts = [LANG_NAMES[cfg["language"]], QUALITY_NAMES[cfg["quality"]], "✏ editezi tu" if edit else margin_label(cfg)]
+    if edit and not cfg.get("captions_now", True): parts.append("fără subtitrări")
     if not cfg["burn_captions"]: parts.append("fără text ars")
     if cfg.get("script"): parts.append("după script")
     return " · ".join(parts)
@@ -1192,6 +1194,9 @@ def apply_timeline(job_dir, payload, report):
     sc = payload.get("script_chosen")
     if isinstance(sc, list) and pr.get("script_align"):  # dublele alese in tabul „📜 Script”
         pr["script_align"]["chosen"] = {str(i): v for i, v in enumerate(sc) if isinstance(v, int)}
+    cut = payload.get("script_cut")
+    if isinstance(cut, dict) and isinstance(cut.get("base"), list) and pr.get("script_align"):   # „✂ Taie după script”
+        pr["script_align"].update(keep=True, cuts=True, base=_clean_base(cut["base"]) or pr["script_align"]["base"])
     if pr.get("materials_pending"):                     # materialele puse intre timp nu mai sunt „de pus”
         pr["materials_pending"] = [a for a in pr["materials_pending"] if not any(o.get("asset") == a for o in pr["overlays"])]
     pr["audio"] = clean_audio(payload.get("audio"), seg_total(segs), job_dir / ASSETS)
@@ -2191,7 +2196,9 @@ def _script_result(sa, al, words, base, cfg, keep_mode):
         segs = base
     if cfg.get("script_captions"):
         # cand pastrez doar dublele alese, restul vorbelor e taiat oricum: nu le amestec in subtitrari
-        extra = [] if keep_mode else [w_ for i, w_ in enumerate(words) if i not in al["used"] and i not in al["retake"]]
+        # reluarile raman in video daca nu le tai („Editez eu”, sau „Scoate reluarile” oprit) -> au si ele subtitrari
+        extra = [] if keep_mode else [w_ for i, w_ in enumerate(words)
+                                      if i not in al["used"] and (i not in al["retake"] or not cfg.get("script_retakes"))]
         words = sorted(sa.script_words(al, words) + extra)
     return segs, words
 
@@ -2218,7 +2225,7 @@ def apply_script(script, words, segs, cfg, report, src=None):
                                   + (f" ({n_quiet} spuse încet, citite de pe ecran)" if n_quiet else "")
                                   + (f" · am scos încă {removed:.1f} s față de tăierea pauzelor." if cfg.get("script_retakes") or keep_mode
                                      else " · nu tai nimic după script (îl folosesc pentru subtitrări și în tabul „📜 Script”).")})
-    summary = f"Script: {n_found}/{n_units} fraze · {n_retakes} reluări · −{removed:.1f} s"
+    summary = f"Script: {n_found}/{n_units} fraze · {n_retakes} reluări" + (f" · −{removed:.1f} s" if cfg.get("script_retakes") or keep_mode else "")
     report({"type": "stage_detail", "n": 2, "detail": summary})
     # potrivirea ramane in proiect: tabul „📜 Script” iti arata dublele si poti alege alta
     info = {"units": al["units"], "takes": al["all_takes"], "base": base, "keep": keep_mode,
@@ -2226,12 +2233,25 @@ def apply_script(script, words, segs, cfg, report, src=None):
             "words": [list(w_) for w_ in words]}
     return segs, words_out, summary, info
 
-def script_choose(project, k, idx):
-    """Alegi alta dubla pentru fraza k (idx = None -> fraza scoasa). Reface bucatile si subtitrarile."""
+def _clean_base(raw):
+    """Bucati [a, b] trimise din Timeline -> lista curata, in ordinea din sursa, lipite unde se ating."""
+    out = []
+    for a, b in sorted([float(a), float(b)] for a, b in (raw or []) if float(b) - float(a) > 0.01):
+        if out and a <= out[-1][1] + 1e-3:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([round(a, 3), round(b, 3)])
+    return out
+
+def script_choose(project, k, idx, segments=None, cut=None):
+    """Alegi alta dubla pentru fraza k (idx = None -> fraza scoasa). Reface bucatile si subtitrarile.
+    segments = ce e acum pe timeline; cut = {"base": ...} daca ai apasat „✂ Taie după script” (nesalvat inca)."""
     import script_align as sa
     info = project.get("script_align")
     if not info:
         raise RuntimeError("Video-ul acesta n-a fost procesat cu script.")
+    if isinstance(cut, dict) and isinstance(cut.get("base"), list):
+        info.update(keep=True, cuts=True, base=_clean_base(cut["base"]) or info["base"])
     takes = info["takes"]
     if not (0 <= k < len(takes)) or (idx is not None and not (0 <= idx < len(takes[k]))):
         raise RuntimeError("Dublă necunoscută.")
@@ -2248,14 +2268,61 @@ def script_choose(project, k, idx):
     words = [tuple(w) for w in info["words"]]
     al = sa.finish({"units": info["units"], "all_takes": takes, "chosen": {kk: takes[kk][v] for kk, v in chosen.items()}})
     cfg = merge_settings(project.get("settings") or {})
-    segs, words_out = _script_result(sa, al, words, info["base"], cfg, info.get("keep", True))
+    cuts = info.get("cuts", True)
+    if cuts:
+        segs, words_out = _script_result(sa, al, words, info["base"], cfg, info.get("keep", True))
+    else:   # „✏ Editez eu”: dubla aleasa schimba doar textul subtitrarilor; taieturile tale raman cum sunt
+        _, words_out = _script_result(sa, al, words, info["base"], {**cfg, "script_retakes": False}, False)
+        segs = [list(s) for s in segments] if segments else project["segments"]
     info["chosen"] = {str(kk): v for kk, v in chosen.items()}
     project["segments"] = segs
     if (project.get("captions") or {}).get("style"):
         inside = lambda t: any(a <= t <= b for a, b in segs)
-        ws = [w_ for w_ in words_out if inside((w_[0] + w_[1]) / 2)]
+        ws = [w_ for w_ in words_out if not cuts or inside((w_[0] + w_[1]) / 2)]   # editezi tu: subtitrari peste tot
         project["captions"] = build_captions(chunk_words(ws, cfg["words_per_caption"]), project["captions"]["style"])
     return project
+
+def script_cut(project, segments, cfg):
+    """„✂ Taie după script” (cand editezi tu): din ce e acum pe timeline pastrez doar dubla aleasa pentru fiecare
+    fraza, in ordinea din script — fara reluari, balbe si ce nu e in script. Intoarce (bucatile noi, baza)."""
+    import script_align as sa
+    info = project.get("script_align")
+    if not info or not info.get("chosen"):
+        raise RuntimeError("Video-ul acesta n-are un script potrivit cu filmarea. Pune scriptul când încarci video-ul.")
+    takes = info["takes"]
+    words = [tuple(w) for w in info["words"]]
+    al = sa.finish({"units": info["units"], "all_takes": takes,
+                    "chosen": {int(k): takes[int(k)][v] for k, v in info["chosen"].items()}})
+    base = _clean_base(segments) or _clean_base(project["segments"])
+    segs, _ = _script_result(sa, al, words, base, {**cfg, "script_captions": False}, True)
+    return segs, base
+
+def add_captions(job_dir, cfg, report, on_segment):
+    """„💬 Adaugă subtitrări” pentru un video incarcat fara ele: transcriu sursa intreaga (subtitrarile sunt in timpul
+    sursei, deci raman bune oricum ai taiat). Cu script, iau textul din el, fara sa tai nimic."""
+    job_dir = Path(job_dir)
+    pr = load_project(job_dir)
+    src = project_source(job_dir, pr)
+    words = transcribe(src, cfg, report, on_segment)
+    if not words:
+        raise RuntimeError("Nu am auzit vorbă în video — n-am ce subtitra.")
+    info = None
+    script = (cfg.get("script") or "").strip()
+    if script:
+        whole = [[0.0, float(pr.get("source_duration") or probe_duration(src))]]
+        _, words, summary, info = apply_script(script, words, whole, {**cfg, "script_retakes": False, "script_offscript": False},
+                                               report, src)
+        if info:
+            info["cuts"] = False
+    pr = load_project(job_dir)                  # proiectul proaspat: transcrierea a durat cateva minute
+    style = (pr.get("captions") or {}).get("style") or load_default_style()
+    pr["captions"] = build_captions(chunk_words(words, cfg["words_per_caption"]), style)
+    if info:
+        pr["script_align"] = info
+    save_project(job_dir, pr)
+    save_caption_files(job_dir, captions_to_out(pr["captions"], pr["segments"]))
+    report({"type": "stage_detail", "n": 2, "detail": f"{len(words)} cuvinte · subtitrări gata"})
+    return pr
 
 
 # ------------------------------------------------------------ totul
@@ -2272,12 +2339,13 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         report({"type": "log", "msg": f"Video-ul are etichetă de rotație ({probe_rotation(video)}°) — îl îndrept întâi, ca să nu iasă culcat."})
         src = job_dir / "sursa.mp4"
         encode(video, src, None, str(job_dir), report, 1, "Îndrept video-ul")
-    if cfg.get("autocut", True):
+    edit = not cfg.get("autocut", True)
+    if not edit:
         segs = analyze_segments(src, job_dir, cfg, report)
-    else:                                   # „editez eu”: video-ul ramane intreg; scriptul doar pentru textul subtitrarilor
+    else:   # „✏ Editez eu”: video-ul ramane intreg si nu se randeaza acum; scriptul doar pentru textul subtitrarilor
         segs = [[0.0, round(probe_duration(src), 3)]]
         cfg = {**cfg, "script_retakes": False, "script_offscript": False}
-        report({"type": "log", "msg": "Fără tăiere automată: video-ul rămâne întreg. Îl editezi în Timeline (acolo poți tăia pauzele unde vrei)."})
+        report({"type": "log", "msg": "✏ Editezi tu: nu tai nimic și nu randez acum. Video-ul final se face când apeși „Salvează și randează” în Timeline."})
     cut = job_dir / "video_taiat.mp4"
     look0 = load_default_look()
     try:
@@ -2288,12 +2356,15 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         snd = None
         report({"type": "log", "msg": f"Curățarea sunetului n-a mers ({_short_err(e)}); folosesc sunetul original."})
     script = (cfg.get("script") or "").strip()
-    if script:
+    if edit:
+        report({"type": "skipped", "n": 1, "detail": "Fără tăiere — o faci tu în Timeline"})
+    elif script:
         report({"type": "stage_detail", "n": 1, "detail": "Pauze găsite · urmează potrivirea cu scriptul"})
     else:
         render_proxy(src, segs, cut, report, audio_src=snd)
         report({"type": "cut_done", "from": round(probe_duration(src), 1), "to": round(seg_total(segs), 1)})
-    files["cut"] = cut.name
+    if not edit:
+        files["cut"] = cut.name
 
     w, h = probe_size(src)
     project = {
@@ -2306,19 +2377,32 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
     files["project"] = PROJECT_FILE
 
     # 2) transcriu SURSA (timpii raman valabili daca schimbi taieturile)
-    words = transcribe(src, cfg, report, on_segment)
-    if script:
+    no_caps = edit and not cfg.get("captions_now", True)
+    if no_caps:
+        words = []
+        report({"type": "stage", "n": 2})
+    else:
+        words = transcribe(src, cfg, report, on_segment)
+    det2 = f"{len(words)} cuvinte"
+    if script and words:
         segs, words, summary, info = apply_script(script, words, segs, cfg, report, src)
         project["segments"] = segs
         if info:
+            if edit:
+                info["cuts"] = False        # scriptul nu taie nimic; „✂ Taie după script” din Timeline, cand vrei tu
             project["script_align"] = info
         save_project(job_dir, project)
-        render_proxy(src, segs, cut, report, n=2, scale=(0, 100), audio_src=snd)
+        if not edit:
+            render_proxy(src, segs, cut, report, n=2, scale=(0, 100), audio_src=snd)
+            report({"type": "cut_done", "from": round(probe_duration(src), 1), "to": round(seg_total(segs), 1)})
+        det2 = summary
         report({"type": "stage_detail", "n": 2, "detail": summary})
+    elif script and not edit:
+        render_proxy(src, segs, cut, report, n=2, scale=(0, 100), audio_src=snd)
         report({"type": "cut_done", "from": round(probe_duration(src), 1), "to": round(seg_total(segs), 1)})
     inside = lambda t: any(a <= t <= b for a, b in segs)
     words = [w_ for w_ in words if inside((w_[0] + w_[1]) / 2)]
-    if not words:
+    if not words and not edit:
         if before_final:
             save_project(job_dir, before_final(project) or project)
         report({"type": "log", "msg": "Nu am detectat vorbă — am făcut doar tăierea."})
@@ -2326,22 +2410,34 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         report({"type": "done", "files": files})
         return files
 
-    project["captions"] = build_captions(chunk_words(words, cfg["words_per_caption"]), load_default_style())
-    save_project(job_dir, project)
-    save_caption_files(job_dir, captions_to_out(project["captions"], segs))
-    files.update(srt="subtitrari.srt", txt="transcript.txt", captions=PROJECT_FILE)
+    if words:
+        project["captions"] = build_captions(chunk_words(words, cfg["words_per_caption"]), load_default_style())
+        save_project(job_dir, project)
+        save_caption_files(job_dir, captions_to_out(project["captions"], segs))
+        files.update(srt="subtitrari.srt", txt="transcript.txt", captions=PROJECT_FILE)
+    elif cfg.get("captions_now", True):
+        report({"type": "log", "msg": "Nu am auzit vorbă în video — n-am făcut subtitrări."})
 
+    if edit:
+        report({"type": "stage_detail", "n": 2, "detail": "Pregătesc copia pentru Timeline…"})
     try:
         make_preview(job_dir, project, report)
     except Exception as e:
         report({"type": "log", "msg": f"Copia de previzualizare n-a mers ({_short_err(e)}); Timeline-ul folosește originalul."})
+    if no_caps:
+        report({"type": "skipped", "n": 2, "detail": "Fără subtitrări — le adaugi din Timeline, când vrei"})
+    elif edit:
+        report({"type": "stage_detail", "n": 2, "detail": det2 if words else "Fără vorbă detectată"})
 
     if before_final:
         project = before_final(project) or project
         save_project(job_dir, project)
 
     # 3) video-ul final
-    if cfg["burn_captions"]:
+    if edit:
+        report({"type": "skipped", "n": 3, "detail": "Când apeși „Salvează și randează” în Timeline"})
+        report({"type": "log", "msg": "✏ Gata de editat: deschide Timeline-ul. Video-ul final se randează când apeși „Salvează și randează”."})
+    elif cfg["burn_captions"]:
         files["final"] = render_final(job_dir, project, report, source_url, asset_url)
     else:
         report({"type": "skipped", "n": 3, "detail": "Oprit din setări"})

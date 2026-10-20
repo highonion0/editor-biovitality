@@ -19,7 +19,7 @@ function renderCaptionsTab() {
   const body = $('#tInspBody'); if (!body || T.tab !== 'cap') return;
   const keepList = $('#tcList') ? $('#tcList').scrollTop : null, main = $('#main'), keepMain = main ? main.scrollTop : 0;
   const cap = T.pr.captions;
-  if (!cap || !cap.cues || !cap.cues.length) { body.innerHTML = '<div class="sub2">Video-ul acesta nu are subtitrări.</div>'; return; }
+  if (!cap || !cap.cues || !cap.cues.length) { capAddPanel(body); return; }
   body.innerHTML = `<div class="tcbox">
     <div id="tcBar"></div>
     <details class="tcstyle" id="tcDet" ${TC.open ? 'open' : ''}><summary>Stil pentru toate subtitrările · font, mărime, culoare, contur, poziție</summary><div id="tcStyle"></div></details>
@@ -29,6 +29,37 @@ function renderCaptionsTab() {
   tcBar(); tcStyle(); tcList();
   if (keepList != null) $('#tcList').scrollTop = keepList;
   if (main) main.scrollTop = keepMain;
+}
+
+/* ---- „💬 Adaugă subtitrări”: video incarcat fara ele (sau fara vorba recunoscuta) */
+function capAddPanel(body) {
+  body.innerHTML = `<div class="capadd"><h4 style="margin:0">💬 Subtitrări</h4>
+    <p class="sub2" style="margin:0">Video-ul acesta n-are încă subtitrări.</p>
+    ${T.capWait ? '<div class="msg wait" style="max-width:none"><span class="spin"></span><span>Transcriu video-ul… Poți edita în continuare: '
+        + 'subtitrările apar singure aici și pe video. „Salvează și randează” merge după ce sunt gata.</span></div>'
+      : `<button class="cta" id="tcAdd">💬 Adaugă subtitrări</button>
+        <p class="sub2" style="margin:0">Transcriu tot video-ul (câteva minute). Dacă ai pus un script la încărcare, subtitrările iau textul din el.
+          Rămân la locul lor oricum tai sau muți bucățile.</p>`}</div>`;
+  const b = $('#tcAdd', body);
+  if (b) b.onclick = async () => { b.disabled = true; if (await addCaptions(T.id)) T.capWait = true; renderCaptionsTab(); };
+}
+// la fiecare schimbare a video-ului: cand s-a terminat transcrierea, subtitrarile intra in Timeline
+async function capOnJob(j) {
+  if (!T.capWait || !j || j.task === 'captions') return;
+  T.capWait = false;
+  const st = j.stages && j.stages[1];
+  if (st && st.status === 'error') { toast('Subtitrările n-au mers: ' + (st.detail || 'vezi jurnalul tehnic.')); if (T.tab === 'cap') renderCaptionsTab(); return; }
+  const d = await fetch(`/api/project/${T.id}`).then(r => r.json()).catch(() => null);
+  if (!T.on || T.id !== j.id || !d || !d.project) return;
+  const cap = d.project.captions;
+  if (!cap || !cap.cues || !cap.cues.length) { if (T.tab === 'cap') renderCaptionsTab(); return; }
+  T.pr.captions = cap;
+  // ce era in istoric dinainte n-avea subtitrari: Ctrl+Z nu trebuie sa le stearga
+  const fix = s => { const o = JSON.parse(s); if (!o.cc || !o.cc.length) { o.cc = cap.cues; o.cs = cap.style; } return JSON.stringify(o); };
+  T.undo = T.undo.map(fix); T.redo = T.redo.map(fix);
+  if (typeof S.script === 'object') delete S.script[T.id];
+  tlRender(); tlPaint(); tlTabs();
+  toast('Subtitrările sunt gata: le vezi pe video și în tabul „Aa Subtitrări”.');
 }
 
 /* ---- bara: B / I / U / culori pentru cuvintele selectate */

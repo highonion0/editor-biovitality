@@ -69,7 +69,8 @@ async function openTimeline(j) {
   clearTimeout(slow);
   if (pv.url) d.source = pv.url;
   Object.assign(T, {
-    on: true, id: j.id, name: j.name, pr: d.project, visionDefault: d.vision_default || '', scChosen: null, src: d.source, assetBase: d.asset_base, assets: d.assets,
+    on: true, id: j.id, name: j.name, pr: d.project, visionDefault: d.vision_default || '', scChosen: null, scCut: null, capWait: !!d.captions_busy,
+    src: d.source, assetBase: d.asset_base, assets: d.assets,
     segs: deep(d.project.segments), ovs: deep(d.project.overlays || []), auds: deep(d.project.audio || []),
     look: deep(d.project.look || { color: { preset: 'original', brightness: 0, contrast: 1, saturation: 1, temperature: 0, tint: 0 }, audio: { denoise: 'off', clear: false, loudness: false } }),
     zooms: deep(d.project.zooms || []), trans: deep(d.project.transitions || {}),
@@ -560,7 +561,7 @@ function tlLoop() {
 
 /* ---------------------------------------------------------------- istoric */
 const tlSnap = () => JSON.stringify({ segs: T.segs, ovs: T.ovs, auds: T.auds, cs: T.pr.captions ? T.pr.captions.style : null,
-  cc: T.pr.captions ? T.pr.captions.cues : null, lk: T.look, zo: T.zooms, tr: T.trans, sc: T.scChosen || null });
+  cc: T.pr.captions ? T.pr.captions.cues : null, lk: T.look, zo: T.zooms, tr: T.trans, sc: T.scChosen || null, ct: T.scCut || null });
 function tlCommit(prev) { if (prev === tlSnap()) return; T.undo.push(prev); if (T.undo.length > 200) T.undo.shift(); T.redo = []; T.dirty = true; tlDirtyUI(); tlAutosaveSoon(); }
 function tlChange(fn) { const prev = tlSnap(); fn(); tlCommit(prev); tlAfter(); }
 function tlHistory(dir) {
@@ -573,6 +574,7 @@ function tlHistory(dir) {
   if (st.zo) T.zooms = st.zo;
   if (st.tr) T.trans = st.tr;
   T.scChosen = st.sc || null;
+  T.scCut = st.ct || null;
   T.sel = null; T.dirty = true; tlDirtyUI(); tlAfter(); tlAutosaveSoon();
 }
 function tlAfter() {
@@ -1396,7 +1398,8 @@ function tlInspector() {
 /* ---------------------------------------------------------------- salvare automata (ciorna) */
 function tlState() {
   return { segments: T.segs, overlays: T.ovs, audio: T.auds, caption_style: T.pr.captions ? T.pr.captions.style : null,
-    caption_cues: T.pr.captions ? T.pr.captions.cues : null, look: T.look, zooms: T.zooms, transitions: T.trans, script_chosen: T.scChosen || null };
+    caption_cues: T.pr.captions ? T.pr.captions.cues : null, look: T.look, zooms: T.zooms, transitions: T.trans, script_chosen: T.scChosen || null,
+    script_cut: T.scCut || null };
 }
 function tlAutosaveSoon() { clearTimeout(T.asTimer); T.asTimer = setTimeout(tlAutosave, 1000); }
 async function tlAutosave() {
@@ -1421,7 +1424,10 @@ function tlOfferDraft(draft) {
       if (Array.isArray(draft.overlays)) T.ovs = draft.overlays;
       if (Array.isArray(draft.audio)) T.auds = draft.audio;
       if (T.pr.captions && draft.caption_style) T.pr.captions.style = draft.caption_style;
-      if (T.pr.captions && Array.isArray(draft.caption_cues)) T.pr.captions.cues = draft.caption_cues;
+      // o ciorna facuta inainte sa fie gata subtitrarile nu le sterge
+      if (T.pr.captions && Array.isArray(draft.caption_cues) && draft.caption_cues.length) T.pr.captions.cues = draft.caption_cues;
+      if (Array.isArray(draft.script_chosen)) T.scChosen = draft.script_chosen;
+      if (draft.script_cut) T.scCut = draft.script_cut;
       if (draft.look) T.look = draft.look;
       if (Array.isArray(draft.zooms)) T.zooms = draft.zooms;
       if (draft.transitions) T.trans = draft.transitions;
@@ -1467,7 +1473,7 @@ async function tlSave() {
   const r = await fetch(`/api/timeline/${T.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ segments: T.segs, overlays: T.ovs, audio: T.auds, caption_style: T.pr.captions ? T.pr.captions.style : null,
       caption_cues: T.pr.captions ? T.pr.captions.cues : null, look: T.look, zooms: T.zooms, transitions: T.trans,
-      script_chosen: T.scChosen || null }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+      script_chosen: T.scChosen || null, script_cut: T.scCut || null }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
   if (r.error) { toast(r.error); btn.disabled = false; return; }
   const id = T.id; T.dirty = false; T.on = false; T.ovEls = new Map(); T.auEls = new Map(); S.rendered = null;
   S.selected = id; S.mediaPick[id] = 'final';

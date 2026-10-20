@@ -25,6 +25,8 @@ Preluat din chatul vechi în care a fost dezvoltată aplicația (2 octombrie 202
    - Formatul se aplică pe toate video-urile pregătite, iar propunerile se generează automat.
    - Utilizatorul doar aprobă, apoi randarea merge în coadă, inclusiv peste noapte.
 ## Făcute
+- **„✏ Editez eu”** la încărcare: fără tăiere și fără randare; subtitrări acum sau mai târziu („💬 Adaugă subtitrări”);
+  „✂ Taie după script” din tabul 📜 Script, când vrei tu.
 - **Reordonarea bucăților** din video-ul principal (tragere pe timeline, butoane ◀ ▶, Alt+←/→).
 - **4. Pachet de publicare** (tabul 📣 Publicare): descriere, hashtag-uri, text de copertă și primul comentariu pe platformă + coperta.
 - **6. Variante de cârlig (A/B)** (tabul 📣 Publicare): `varianta_A.mp4`, `varianta_B.mp4`…

@@ -47,8 +47,15 @@ Dacă vreodată rulezi din nou `setup_windows.bat`, rulează după el și `insta
 - **♪ Sunete:** biblioteca de efecte sonore, ca înainte.
 
 ## Tai eu sau taie aplicația?
-- **La încărcare**, pe ecranul de pregătire: comutatorul **„✂ Taie automat pauzele”**. Pornit = ca până acum (pauze + reluări după script).
-  Oprit = video-ul rămâne **întreg**; se face doar transcrierea (cu textul din script, dacă ai pus), iar tu editezi în Timeline.
+- **La încărcare**, pe ecranul de pregătire, alegi:
+  - **✂ Taie și randează** — ca până acum: pauzele și reluările (după script) se taie singure, apoi se randează video-ul.
+  - **✏ Editez eu** — nu se taie și nu se randează nimic. Se pregătește doar copia pentru Timeline (și subtitrările, dacă vrei),
+    iar video-ul apare în listă ca **„Gata de editat”**, cu butonul **„✏ Deschide în Timeline”**.
+    Video-ul final se randează o singură dată, când apeși „Salvează și randează”.
+    Cu **„💬 Fă subtitrările acum”** oprit, e gata în câteva secunde; subtitrările le adaugi oricând din Timeline,
+    tabul „Aa Subtitrări” → **„💬 Adaugă subtitrări”** (poți edita în continuare cât se fac; apar singure).
+- **„✂ Taie după script”** (tabul 📜 Script, la „Editez eu” cu script): din ce e acum pe timeline păstrează doar dubla aleasă
+  pentru fiecare frază, în ordinea din script, fără reluări, bâlbe și ce nu e în script. Ctrl+Z anulează.
 - **În Timeline**, butonul **„⏸✂ Taie pauzele”** le taie automat doar unde alegi:
   **în bucata selectată**, **în intervalul marcat** (tasta **I** = început, **O** = sfârșit, la cursor; Esc îl șterge) sau **în tot video-ul**.
   Folosește „Respiro la tăieturi” din stânga. Pozele, graficele, zoom-urile și sunetele rămân pe aceleași vorbe. Ctrl+Z anulează.

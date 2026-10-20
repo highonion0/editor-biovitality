@@ -252,6 +252,14 @@ input[type=range]{width:100%;accent-color:var(--honey)}
 #dScript:focus{border-color:var(--honey)}
 .dopts{display:grid;gap:8px;margin-top:14px}
 .dopts.off{opacity:.45}
+.dmode{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dmode button{display:flex;flex-direction:column;gap:4px;text-align:left;padding:12px 13px;border:1px solid var(--line2);border-radius:11px;background:transparent;color:var(--text);cursor:pointer}
+.dmode button b{font-size:13.5px}
+.dmode button small{color:var(--muted);font-size:12px;line-height:1.4}
+.dmode button.on{border-color:var(--honey);background:var(--honeySoft)}
+.dedit.off{display:none}
+.editbox{display:flex;flex-direction:column;gap:12px;background:var(--honeySoft);border:1px solid var(--honey);border-radius:var(--r);padding:14px 16px;margin-bottom:16px;font-size:13.5px;line-height:1.5}
+.editbox .row{display:flex;gap:8px;flex-wrap:wrap}
 .dcutnote{display:none;color:var(--muted);font-size:12px}
 #dCutOpts.off .dcutnote{display:block}
 .dact{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
@@ -401,7 +409,7 @@ const ICON = {
 
 /* ------------------------------------------------ setari */
 const DEFAULTS = { language: 'ro', quality: 'rapid', cut: 'normala', margin: 0.2, margin_after: null, words_per_caption: 5, burn_captions: true, vocabulary: 'BioVitality',
-  auto_start: false, autocut: true, script_retakes: true, script_offscript: true, script_captions: true };
+  auto_start: false, autocut: true, captions_now: true, script_retakes: true, script_offscript: true, script_captions: true };
 function loadSettings() { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('bv-settings') || '{}') }; } catch { return { ...DEFAULTS }; } }
 function saveSettings() { try { localStorage.setItem('bv-settings', JSON.stringify(S.settings)); } catch {} }
 
@@ -433,6 +441,7 @@ function handle(ev) {
     else { S.jobs.set(ev.job.id, { ...ev.job, segments: [], log: [] }); S.order.push(ev.job.id); if (!S.selected) S.selected = ev.job.id; }
     renderSidebar(); renderMain();
     if (T.on && ev.job.id === T.id && typeof pubOnJob === 'function') pubOnJob();
+    if (T.on && ev.job.id === T.id && typeof capOnJob === 'function') capOnJob(S.jobs.get(ev.job.id));
   } else if (ev.type === 'segment') {
     const j = S.jobs.get(ev.id); if (!j) return;
     j.segments.push(ev.seg);
@@ -465,7 +474,8 @@ function statusText(j) {
   if (j.status === 'draft') return 'Pregătit · adaugă scriptul și pornește';
   if (j.status === 'queued') return 'În așteptare';
   if (j.status === 'error') return 'Eroare';
-  if (j.status === 'done') return j.cut_from ? `Gata · ${j.cut_from}s → ${j.cut_to}s` : 'Gata';
+  if (j.status === 'done' && toEdit(j)) return 'Gata de editat · deschide Timeline-ul';
+  if (j.status === 'done') return j.cut_from && j.cut_to != null ? `Gata · ${j.cut_from}s → ${j.cut_to}s` : 'Gata';
   if (j.status === 'running' && j.stage) {
     const s = j.stages[j.stage - 1];
     return `${s.label}${s.progress != null ? ' · ' + Math.round(s.progress) + '%' : '…'}`;
@@ -473,6 +483,14 @@ function statusText(j) {
   return 'Pornesc…';
 }
 const PILL = { draft: 'Pregătit', queued: 'În așteptare', running: 'În lucru', done: 'Gata', error: 'Eroare' };
+// „✏ Editez eu”: video-ul n-a fost inca randat (il editeaza ea in Timeline)
+const toEdit = j => !!(j.edit && !(j.files && j.files.final));
+async function addCaptions(id) {
+  const r = await post(`/api/captions-add/${id}`);
+  if (r.error) { toast(r.error); return false; }
+  toast('Fac subtitrările… Poți edita în continuare; apar singure când sunt gata.');
+  return true;
+}
 function mediaKinds(j) {
   const k = ['input'];
   if (j.cut_to != null) k.push('cut');
@@ -567,6 +585,7 @@ function buildJob(j) {
       </div>
     </div>
     <div id="jErr"></div>
+    <div id="jEdit"></div>
     <div class="steps" id="steps"></div>
     <div class="work">
       <div class="card">
@@ -604,7 +623,7 @@ function buildJob(j) {
 
 function updateJob(j) {
   const pill = $('#jPill');
-  pill.className = 'pill ' + j.status; pill.textContent = PILL[j.status] || j.status;
+  pill.className = 'pill ' + j.status; pill.textContent = j.status === 'done' && toEdit(j) ? 'Gata de editat' : PILL[j.status] || j.status;
   $('#jInfo').textContent = [j.settings_view, j.device].filter(Boolean).join(' · ');
 
   const done = j.status === 'done';
@@ -617,7 +636,19 @@ function updateJob(j) {
   $('#aCopy').disabled = !j.segments.length;
   $('#aRedo').disabled = j.status === 'running' || j.status === 'queued';
   $('#aEdit').disabled = !(j.status === 'done' && j.files && j.files.captions);
-  $('#aTimeline').disabled = !(j.status === 'done' && j.files && j.files.project);
+  const capBusy = j.task === 'captions';
+  $('#aTimeline').disabled = !((j.status === 'done' || capBusy) && j.files && j.files.project);
+  // „✏ Editez eu”: de aici intri in Timeline (si iti faci subtitrarile, daca nu le-ai facut la incarcare)
+  const eh = (j.status === 'done' || capBusy) && toEdit(j) ? `<div class="editbox"><div><b>✏ Gata de editat.</b> Video-ul e întreg, cum l-ai filmat.
+      Îl tai și îl aranjezi în Timeline; video-ul final se randează când apeși „Salvează și randează”.</div>
+      <div class="row"><button class="cta" id="aEditTl">✏ Deschide în Timeline</button>
+      ${!(j.files && j.files.captions) ? `<button class="btn" id="aAddCap" ${capBusy ? 'disabled' : ''}>${capBusy ? '<span class="spin"></span>Fac subtitrările…' : '💬 Adaugă subtitrări'}</button>` : ''}</div></div>` : '';
+  const jEdit = $('#jEdit');
+  if (jEdit.dataset.h !== eh) {                       // redesenez doar cand se schimba (altfel click-ul se pierde)
+    jEdit.dataset.h = eh; jEdit.innerHTML = eh;
+    const et = $('#aEditTl'); if (et) et.onclick = () => openTimeline(j);
+    const ac = $('#aAddCap'); if (ac) ac.onclick = async () => { ac.disabled = true; if (!(await addCaptions(j.id))) ac.disabled = false; };
+  }
   $('#aRedo').title = 'Refac video-ul cu ' + marginText();
 
   $('#jErr').innerHTML = j.status === 'error'
@@ -786,13 +817,20 @@ function buildDraft(j) {
       <div class="card">
         <div class="chead"><h3>Script <span class="count">opțional</span></h3><span class="count" id="dCount">${draftCount(txt)}</span></div>
         <div class="dbody2">
-          ${tog('autocut', '✂ Taie automat pauzele', 'Oprit = video-ul rămâne întreg și îl editezi tu în Timeline (acolo poți tăia pauzele doar unde vrei)')}
+          <div class="dmode" id="dMode">
+            <button data-mode="auto" class="${S.settings.autocut ? 'on' : ''}"><b>✂ Taie și randează</b>
+              <small>Aplicația taie pauzele (și reluările, după script), pune subtitrările și randează video-ul.</small></button>
+            <button data-mode="edit" class="${S.settings.autocut ? '' : 'on'}"><b>✏ Editez eu</b>
+              <small>Nu taie și nu randează. Intri direct în Timeline; video-ul final se face când apeși „Salvează și randează”.</small></button>
+          </div>
+          <div class="dedit ${S.settings.autocut ? 'off' : ''}" id="dEdit">
+            ${tog('captions_now', '💬 Fă subtitrările acum', 'Oprit = e gata aproape imediat; le adaugi oricând din Timeline, cu „Adaugă subtitrări”')}</div>
           <textarea id="dScript" placeholder="Lipește aici scriptul video-ului.&#10;&#10;Programul îl folosește ca să scoată reluările și ce ai spus în afara lui, iar subtitrările vor avea exact textul tău.&#10;&#10;Fără script: tai doar pauzele și transcriu ce ai spus."></textarea>
           <div class="dopts ${txt.trim() ? '' : 'off'}" id="dOpts">
             <div class="dopts ${S.settings.autocut ? '' : 'off'}" id="dCutOpts" style="margin-top:0">
               ${tog('script_retakes', 'Scoate reluările', 'Dacă ai spus o frază de mai multe ori, păstrez ultima variantă')}
               ${tog('script_offscript', 'Scoate ce nu e în script', 'Bâlbe, fraze abandonate, „stai, o iau de la capăt”')}
-              <small class="dcutnote">Cu „Taie automat pauzele” oprit, nu tai nimic: scriptul e folosit doar pentru subtitrări.</small></div>
+              <small class="dcutnote">La „✏ Editez eu” nu tai nimic acum: scriptul e folosit pentru subtitrări, iar în Timeline, la 📜 Script, ai „✂ Taie după script”, când vrei.</small></div>
             ${tog('script_captions', 'Subtitrări cu textul din script', 'Cu diacriticele și punctuația ta, nu cum a înțeles transcrierea')}
           </div>
           ${matHTML(j)}
@@ -815,8 +853,14 @@ function buildDraft(j) {
   };
   $('#main').querySelectorAll('[data-opt]').forEach(i => i.onchange = () => {
     S.settings[i.dataset.opt] = i.checked; saveSettings();
-    if (i.dataset.opt === 'autocut') $('#dCutOpts').classList.toggle('off', !i.checked);
   });
+  $('#dMode').onclick = e => {
+    const b = e.target.closest('[data-mode]'); if (!b) return;
+    S.settings.autocut = b.dataset.mode === 'auto'; saveSettings();
+    $('#dMode').querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === b));
+    $('#dEdit').classList.toggle('off', S.settings.autocut);
+    $('#dCutOpts').classList.toggle('off', !S.settings.autocut);
+  };
   $('#dStart').onclick = () => startDraft(j.id);
   matBind(j);
   $('#dAll').onclick = () => startAllDrafts(j.id);
@@ -840,7 +884,8 @@ async function startDraft(id) {
     body: JSON.stringify({ script, settings: S.settings }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
   if (r.error) { toast(r.error); if (b) b.disabled = false; return; }
   delete S.draftText[id];
-  toast(script.trim() ? 'Pornit. Tai pauzele, transcriu și potrivesc cu scriptul.' : 'Pornit fără script: tai pauzele și transcriu.');
+  toast(!S.settings.autocut ? 'Pornit. Pregătesc video-ul pentru Timeline: fără tăiere, fără randare.'
+    : script.trim() ? 'Pornit. Tai pauzele, transcriu și potrivesc cu scriptul.' : 'Pornit fără script: tai pauzele și transcriu.');
 }
 async function startAllDrafts(id) {
   clearTimeout(draftTimer);

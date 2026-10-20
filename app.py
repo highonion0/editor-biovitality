@@ -117,6 +117,7 @@ def create_job(name, path, cfg, status="queued"):
         "id": jid, "name": name, "status": status, "stage": 0, "draft": {"script": cfg.get("script", "")},
         "stages": [{"label": l, "status": "pending", "progress": 0, "detail": ""} for l in STAGE_LABELS],
         "cut_from": None, "cut_to": None, "device": None, "files": {}, "error": None,
+        "edit": not cfg.get("autocut", True), "task": None,      # edit = „✏ Editez eu” (nu se randeaza la procesare)
         "media": "input", "folder": None, "created": time.time(), "finished": None,
         "settings_view": core.settings_summary(cfg),
         "path": str(path), "dir": None, "segments": [], "log": [], "settings": cfg,
@@ -240,8 +241,9 @@ def load_existing_projects():
             job["id"] = meta["id"]; jobs[job["id"]] = job; order.append(job["id"])
         files = _files_in(d, pr)
         job.update(dir=str(d), folder=d.name, files=files, stage=3, media="final" if files.get("final") else "cut",
-                   cut_from=meta.get("cut_from") or round(float(pr.get("source_duration") or 0), 1),
-                   cut_to=meta.get("cut_to") or round(core.seg_total(pr.get("segments") or []), 1),
+                   cut_from=meta.get("cut_from") or (round(float(pr.get("source_duration") or 0), 1) if files.get("cut") else None),
+                   cut_to=meta.get("cut_to") or (round(core.seg_total(pr.get("segments") or []), 1) if files.get("cut") else None),
+                   edit=not cfg.get("autocut", True),
                    device=meta.get("device"), finished=meta.get("finished") or d.stat().st_mtime,
                    settings_view=meta.get("settings_view") or core.settings_summary(cfg))
         # transcrierea (pentru panoul „Transcript” si „Copiaza textul”), refacuta din subtitrarile proiectului
@@ -251,6 +253,13 @@ def load_existing_projects():
                            for c in cues if isinstance(c, dict) and "start" in c and "end" in c]
         for s_, det in zip(job["stages"], ("Din proiectul salvat", "", "Randat" if files.get("final") else "—")):
             s_.update(status="done", progress=100, detail=det)
+        if job["edit"]:                                 # „✏ Editez eu”: ce n-ai facut inca
+            if not files.get("cut"):
+                job["stages"][0].update(status="skipped", detail="Fără tăiere — o faci tu în Timeline")
+            if not files.get("captions"):
+                job["stages"][1].update(status="skipped", detail="Fără subtitrări — le adaugi din Timeline, când vrei")
+            if not files.get("final"):
+                job["stages"][2].update(status="skipped", detail="Când apeși „Salvează și randează” în Timeline")
         job["log"].append({"t": time.strftime("%H:%M:%S"), "msg": f"Reîncărcat din {d.name} — editările tale sunt aici."})
         save_job_meta(job)
         n += 1
@@ -285,7 +294,8 @@ def script_view(pr):
                       "takes": [{"a": words[c["s"]][0], "b": words[c["e"]][1], "score": round(c["score"], 2),
                                  "quiet": bool(c.get("quiet")), "said": " ".join(w[2] for w in words[c["s"]:c["e"] + 1])}
                                 for c in info["takes"][k]]})
-    return {"units": units}
+    # cuts = False: „✏ Editez eu” — scriptul nu taie nimic pana nu apesi „✂ Taie după script”
+    return {"units": units, "cuts": info.get("cuts", True)}
 
 def put_materials(job, project):
     """Dupa transcriere, inainte de randare: copiaza materialele in proiect si le pune pe timeline."""
@@ -321,6 +331,7 @@ def put_materials(job, project):
 def run_job(job):
     st = job["stages"]
     job["status"] = "running"
+    job["edit"] = not job["settings"].get("autocut", True)
     job_dir = unique_path(OUT_DIR / safe_name(Path(job["path"]).stem), is_dir=True)
     job["dir"], job["folder"] = str(job_dir), job_dir.name
     emit(job)
@@ -461,6 +472,35 @@ def run_variants(job, payload):
         traceback.print_exc()
     emit(job)
 
+def run_add_captions(job):
+    """„💬 Adaugă subtitrări”, pentru un video incarcat fara ele (pasul 2 facut acum)."""
+    st = job["stages"]
+    report = make_report(job)
+    t0 = time.time()
+    job["segments"] = []
+
+    def on_segment(start, end, text):
+        seg = {"start": round(start, 2), "end": round(end, 2), "text": text}
+        job["segments"].append(seg)
+        hub.publish({"type": "segment", "id": job["id"], "seg": seg})
+
+    job["status"] = "running"
+    emit(job)
+    try:
+        add_log(job, "Fac subtitrările: transcriu video-ul...")
+        core.add_captions(job["dir"], job["settings"], report, on_segment)
+        job["files"].update(srt="subtitrari.srt", txt="transcript.txt", captions=core.PROJECT_FILE)
+        st[1].update(status="done", progress=100)
+        add_log(job, f"Subtitrările sunt gata ({time.time() - t0:.0f} secunde).")
+    except Exception as e:
+        # video-ul ramane bun de editat: doar pasul subtitrarilor arata ce n-a mers
+        st[1].update(status="error", detail=friendly(e))
+        add_log(job, "Subtitrările n-au mers: " + str(e)[-900:])
+        traceback.print_exc()
+    job["status"], job["task"], job["error"] = "done", None, None
+    save_job_meta(job)
+    emit(job)
+
 def worker():
     while True:
         kind, jid, payload = work_q.get()
@@ -475,6 +515,8 @@ def worker():
             run_timeline(job, payload)
         elif kind == "variants":
             run_variants(job, payload)
+        elif kind == "captions":
+            run_add_captions(job)
 
 def init_device():
     try:
@@ -700,7 +742,8 @@ class Handler(BaseHTTPRequestHandler):
                         "vision_default": assistant.vision_default(),
                         "look_presets": core.COLOR_PRESETS, "look_default": core.load_default_look(),
                         "source": f"/media/{job['id']}/source", "asset_base": f"/asset/{job['id']}",
-                        "assets": assets, "busy": job["status"] in ("running", "queued")})
+                        "assets": assets, "busy": job["status"] in ("running", "queued") and job.get("task") != "captions",
+                        "captions_busy": job.get("task") == "captions"})
         elif len(parts) == 3 and parts[:2] == ["api", "script"]:
             job = self._job_with_project(parts[2])
             if not job:
@@ -871,8 +914,10 @@ class Handler(BaseHTTPRequestHandler):
                 raw = json.loads(urllib.parse.unquote(self.headers.get("X-Settings", "")) or "{}")
             except Exception:
                 raw = {}
+            # modul video-ului („✂ Taie și randează” / „✏ Editez eu”) ramane cel ales la incarcarea lui
             raw = {**raw, **{k: job["settings"].get(k) for k in
-                             ("script", "script_captions", "script_retakes", "script_offscript")}}
+                             ("script", "script_captions", "script_retakes", "script_offscript", "autocut", "captions_now")
+                             if k in job["settings"]}}
             new_job = create_job(job["name"], Path(job["path"]), core.merge_settings(raw))
             emit(new_job)
             work_q.put(("process", new_job["id"], None))
@@ -909,6 +954,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "saved_at": body["saved_at"]})
         if len(parts) == 3 and parts[:2] == ["api", "timeline"]:
             job = jobs.get(parts[2])
+            if job and job.get("task") == "captions":
+                return self._json({"error": "Aștept să fie gata subtitrările (câteva minute), apoi poți salva."}, 409)
             if not job or not job["dir"] or job["status"] in ("running", "queued"):
                 return self._json({"error": "Video-ul e încă în lucru."}, 409)
             body = self._read_json()
@@ -1043,10 +1090,39 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 k = int(body.get("unit"))
                 idx = None if body.get("take") is None else int(body.get("take"))
-                pr = core.script_choose(pr, k, idx)
+                segs = [[float(a), float(b)] for a, b in body["segments"]] if isinstance(body.get("segments"), list) else None
+                pr = core.script_choose(pr, k, idx, segs, body.get("cut"))
             except (TypeError, ValueError, RuntimeError) as e:
                 return self._json({"error": str(e) if isinstance(e, RuntimeError) else "Date invalide."}, 400)
             return self._json({**script_view(pr), "segments": pr["segments"], "captions": pr.get("captions")})
+        if len(parts) == 3 and parts[:2] == ["api", "script-cut"]:
+            # „✂ Taie după script”: doar dublele alese, in ordinea din script, din ce e acum pe timeline
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            body = self._read_json() or {}
+            pr = core.load_project(job["dir"])
+            if isinstance(body.get("chosen"), list) and pr.get("script_align"):    # alegerea curenta din Timeline (nesalvata)
+                pr["script_align"]["chosen"] = {str(i): v for i, v in enumerate(body["chosen"]) if isinstance(v, int)}
+            try:
+                segs = [[float(a), float(b)] for a, b in body.get("segments") or pr["segments"]]
+                cfg = core.merge_settings({**(pr.get("settings") or {}), **(body.get("settings") or {})})
+                new, base = core.script_cut(pr, segs, cfg)
+            except (TypeError, ValueError, RuntimeError) as e:
+                return self._json({"error": str(e) if isinstance(e, RuntimeError) else "Date invalide."}, 400)
+            return self._json({"segments": new, "base": base, "removed": round(core.seg_total(segs) - core.seg_total(new), 2)})
+        if len(parts) == 3 and parts[:2] == ["api", "captions-add"]:
+            # „💬 Adaugă subtitrări” (video incarcat fara ele): transcrierea merge in coada; Timeline-ul ramane deschis
+            job = self._job_with_project(parts[2])
+            if not job:
+                return
+            if job["status"] in ("running", "queued"):
+                return self._json({"error": "Video-ul e încă în lucru. Încearcă după ce se termină."}, 409)
+            job["status"], job["task"], job["stage"] = "queued", "captions", 2
+            job["stages"][1].update(status="active", progress=None, detail="La rând…")
+            emit(job)
+            work_q.put(("captions", job["id"], None))
+            return self._json({"ok": True})
         if len(parts) == 3 and parts[:2] == ["api", "autocut"]:
             # taie automat pauzele doar unde alegi (o bucata, un interval sau tot video-ul)
             job = self._job_with_project(parts[2])

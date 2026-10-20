@@ -357,6 +357,11 @@
 .pvis textarea{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line2);border-radius:9px;color:var(--text);font:inherit;font-size:13px;padding:8px 10px;resize:vertical;margin-top:6px}
 /* tabul Script: frazele si dublele lor */
 .scbox{display:flex;flex-direction:column;gap:10px}
+.sccut{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--honey);border-radius:12px;background:var(--honeySoft)}
+.sccut.on{border-color:var(--line);background:transparent}
+.sccut .cta{height:38px}
+.capadd{display:flex;flex-direction:column;gap:10px}
+.capadd .cta{align-self:flex-start}
 .scu{display:flex;flex-direction:column;gap:6px;padding:9px 11px;border:1px solid var(--line);border-radius:11px}
 .scu.miss{border-color:rgba(226,122,100,.45)}
 .scuh{display:flex;gap:9px;align-items:flex-start}
