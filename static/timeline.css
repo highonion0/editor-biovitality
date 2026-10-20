@@ -1,6 +1,9 @@
 /* ================= timeline ================= */
 .tlhead{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .tlhead h2{font-family:var(--serif);font-weight:600;font-size:22px;margin:0 auto 0 4px;letter-spacing:-.015em}
+.tprep{display:inline-flex;align-items:center;gap:7px;margin-left:10px;padding:4px 11px;border-radius:99px;background:var(--honeySoft);
+  color:var(--honey);font:600 12px var(--sans, inherit);letter-spacing:0;vertical-align:middle}
+.tprep[hidden]{display:none}
 .tltop{display:grid;grid-template-columns:auto minmax(280px,1fr);gap:14px;align-items:start;margin-bottom:14px}
 .tlprev{padding:12px;display:flex;flex-direction:column;align-items:center;gap:10px}
 .tstage{position:relative;height:min(52vh,560px);background:#000;border-radius:8px;overflow:hidden;user-select:none}

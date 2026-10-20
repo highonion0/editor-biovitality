@@ -118,6 +118,7 @@ def create_job(name, path, cfg, status="queued"):
         "stages": [{"label": l, "status": "pending", "progress": 0, "detail": ""} for l in STAGE_LABELS],
         "cut_from": None, "cut_to": None, "device": None, "files": {}, "error": None,
         "edit": not cfg.get("autocut", True), "task": None,      # edit = „✏ Editez eu” (nu se randeaza la procesare)
+        "caps_next": False,                                       # „Editez eu”: subtitrarile vin din pregatirea din fundal
         "media": "input", "folder": None, "created": time.time(), "finished": None,
         "settings_view": core.settings_summary(cfg),
         "path": str(path), "dir": None, "segments": [], "log": [], "settings": cfg,
@@ -260,6 +261,10 @@ def load_existing_projects():
                 job["stages"][1].update(status="skipped", detail="Fără subtitrări — le adaugi din Timeline, când vrei")
             if not files.get("final"):
                 job["stages"][2].update(status="skipped", detail="Când apeși „Salvează și randează” în Timeline")
+            if not files.get("final") and not core.preview_fresh(d, pr):
+                job.update(task="prep", caps_next=bool(cfg.get("captions_now", True) and not files.get("captions")))
+                job["stages"][1].update(status="active", progress=None, detail="Se pregătește în fundal…")
+                work_q.put(("prep", job["id"], None))
         job["log"].append({"t": time.strftime("%H:%M:%S"), "msg": f"Reîncărcat din {d.name} — editările tale sunt aici."})
         save_job_meta(job)
         n += 1
@@ -386,6 +391,7 @@ def run_timeline(job, payload):
     t0 = time.time()
     try:
         add_log(job, "Aplic timeline-ul editat...")
+        core.ensure_upright(job["dir"], core.load_project(job["dir"]), report)    # „✏ Editez eu”: filmarea de telefon, dreapta
         project = core.apply_timeline(job["dir"], payload, report)
         job["media"] = "cut"
         emit(job)
@@ -472,6 +478,67 @@ def run_variants(job, payload):
         traceback.print_exc()
     emit(job)
 
+EDIT_STAGES = ("Fără tăiere — o faci tu în Timeline", "Se pregătește în fundal…", "Când apeși „Salvează și randează” în Timeline")
+
+def start_edit(job):
+    """„✏ Editez eu”: proiectul se face pe loc (cateva secunde, fara sa astepte la coada), ca sa intri direct in Timeline.
+    Copia usoara pentru previzualizare si subtitrarile se fac apoi in fundal (run_prep), cat editezi."""
+    st = job["stages"]
+    job_dir = unique_path(OUT_DIR / safe_name(Path(job["path"]).stem), is_dir=True)
+    job.update(dir=str(job_dir), folder=job_dir.name, edit=True, status="running", stage=1)
+    try:
+        add_log(job, f"Încep: {job['name']}  ({job['settings_view']})")
+        project = core.edit_setup(Path(job["path"]), job_dir, job["settings"])
+        core.save_project(job_dir, put_materials(job, project))
+        job["files"] = {"project": core.PROJECT_FILE}
+        for s_, det in zip(st, EDIT_STAGES):
+            s_.update(status="skipped", progress=0, detail=det)
+        st[1].update(status="active", progress=None)
+        job.update(status="done", task="prep", finished=time.time(), error=None,
+                   caps_next=bool(job["settings"].get("captions_now", True)))
+        add_log(job, "✏ Gata de editat: deschide Timeline-ul. Previzualizarea rapidă"
+                     + (" și subtitrările se fac" if job["settings"].get("captions_now", True) else " se face") + " în fundal.")
+        save_job_meta(job)
+        work_q.put(("prep", job["id"], None))
+    except Exception as e:
+        job.update(status="error", error=friendly(e), task=None)
+        st[0]["status"] = "error"
+        add_log(job, "EROARE: " + str(e)[-900:])
+        traceback.print_exc()
+    emit(job)
+
+def run_prep(job):
+    """In fundal, pentru „✏ Editez eu”: copia usoara pentru previzualizare, apoi subtitrarile (daca le-ai cerut).
+    Video-ul ramane „Gata de editat” tot timpul; Timeline-ul ia singur ce e gata."""
+    st = job["stages"]
+    report = make_report(job)
+    t0 = time.time()
+
+    def on_segment(start, end, text):
+        seg = {"start": round(start, 2), "end": round(end, 2), "text": text}
+        job["segments"].append(seg)
+        hub.publish({"type": "segment", "id": job["id"], "seg": seg})
+
+    want = lambda: bool(job["settings"].get("captions_now", True) or job.get("want_captions"))
+    try:
+        made = core.edit_prepare(job["dir"], job["settings"], report, on_segment, want, lambda: job.get("caps_segs"))
+        if made:
+            job["files"].update(srt="subtitrari.srt", txt="transcript.txt", captions=core.PROJECT_FILE)
+            st[1].update(status="done", progress=100)
+            add_log(job, f"Previzualizarea și subtitrările sunt gata ({time.time() - t0:.0f} secunde).")
+        else:
+            st[1].update(status="skipped", progress=0, detail="Fără subtitrări — le adaugi din Timeline, când vrei")
+            add_log(job, f"Previzualizarea rapidă e gata ({time.time() - t0:.0f} secunde).")
+    except Exception as e:
+        st[1].update(status="error", detail=friendly(e))
+        add_log(job, "Pregătirea n-a mers până la capăt: " + str(e)[-900:])
+        traceback.print_exc()
+    job["status"], job["task"], job["error"], job["caps_next"] = "done", None, None, False
+    job.pop("want_captions", None)
+    job.pop("caps_segs", None)
+    save_job_meta(job)
+    emit(job)
+
 def run_add_captions(job):
     """„💬 Adaugă subtitrări”, pentru un video incarcat fara ele (pasul 2 facut acum)."""
     st = job["stages"]
@@ -488,7 +555,7 @@ def run_add_captions(job):
     emit(job)
     try:
         add_log(job, "Fac subtitrările: transcriu video-ul...")
-        core.add_captions(job["dir"], job["settings"], report, on_segment)
+        core.add_captions(job["dir"], job["settings"], report, on_segment, job.pop("caps_segs", None))
         job["files"].update(srt="subtitrari.srt", txt="transcript.txt", captions=core.PROJECT_FILE)
         st[1].update(status="done", progress=100)
         add_log(job, f"Subtitrările sunt gata ({time.time() - t0:.0f} secunde).")
@@ -508,7 +575,12 @@ def worker():
         if not job:
             continue
         if kind == "process" and job["status"] == "queued":
-            run_job(job)
+            if job["settings"].get("autocut", True):
+                run_job(job)
+            else:
+                start_edit(job)                  # „Refă cu setările actuale” pe un video „✏ Editez eu”
+        elif kind == "prep":
+            run_prep(job)
         elif kind == "reburn":
             run_reburn(job, payload)
         elif kind == "timeline":
@@ -731,11 +803,16 @@ class Handler(BaseHTTPRequestHandler):
             pr["look"] = core.clean_look(pr.get("look"))
             draft = None
             df = Path(job["dir"]) / DRAFT_FILE
-            if df.exists() and df.stat().st_mtime > (Path(job["dir"]) / core.PROJECT_FILE).stat().st_mtime:
+            if df.exists():                        # exista doar cand ai modificari nesalvate in Timeline
                 try:
                     draft = json.loads(df.read_text(encoding="utf-8"))
                 except ValueError:
                     draft = None
+                if draft and df.stat().st_mtime <= (Path(job["dir"]) / core.PROJECT_FILE).stat().st_mtime:
+                    # proiectul s-a schimbat intre timp (ex. „Adaugă subtitrări”): taieturile tale raman,
+                    # subtitrarile proaspete din proiect castiga
+                    draft.pop("caption_cues", None)
+                    draft.pop("caption_style", None)
             self._json({"draft": draft, "project": {k: pr.get(k) for k in ("width", "height", "fps", "source_duration",
                                                            "segments", "captions", "overlays", "audio", "look", "zooms", "transitions",
                                                            "materials_pending", "vision")},
@@ -743,7 +820,10 @@ class Handler(BaseHTTPRequestHandler):
                         "look_presets": core.COLOR_PRESETS, "look_default": core.load_default_look(),
                         "source": f"/media/{job['id']}/source", "asset_base": f"/asset/{job['id']}",
                         "assets": assets, "busy": job["status"] in ("running", "queued") and job.get("task") != "captions",
-                        "captions_busy": job.get("task") == "captions"})
+                        "captions_busy": job.get("task") == "captions" or (job.get("task") == "prep" and bool(
+                            job["settings"].get("captions_now", True) or job.get("want_captions"))
+                            and not (pr.get("captions") or {}).get("cues")),
+                        "prep": job.get("task") == "prep"})
         elif len(parts) == 3 and parts[:2] == ["api", "script"]:
             job = self._job_with_project(parts[2])
             if not job:
@@ -769,7 +849,11 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 return
             try:
-                ok = core.make_preview(job["dir"], core.load_project(job["dir"]))
+                pr = core.load_project(job["dir"])
+                if job.get("task") == "prep":           # se face in fundal: pana atunci Timeline-ul merge cu originalul
+                    ok = core.preview_fresh(job["dir"], pr)
+                else:
+                    ok = core.make_preview(job["dir"], pr)
             except Exception:
                 ok = None
             self._json({"url": f"/media/{job['id']}/preview" if ok else f"/media/{job['id']}/source"})
@@ -954,8 +1038,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "saved_at": body["saved_at"]})
         if len(parts) == 3 and parts[:2] == ["api", "timeline"]:
             job = jobs.get(parts[2])
-            if job and job.get("task") == "captions":
-                return self._json({"error": "Aștept să fie gata subtitrările (câteva minute), apoi poți salva."}, 409)
+            if job and job.get("task") in ("captions", "prep"):
+                return self._json({"error": "Mai pregătesc video-ul în fundal (previzualizarea / subtitrările). "
+                                           "Poți salva după ce se termină — vezi sus, lângă titlu."}, 409)
             if not job or not job["dir"] or job["status"] in ("running", "queued"):
                 return self._json({"error": "Video-ul e încă în lucru."}, 409)
             body = self._read_json()
@@ -991,8 +1076,13 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = core.merge_settings({**settings, "script": script})
                 job.update(settings=cfg, settings_view=core.settings_summary(cfg), status="queued")
                 job["draft"] = {**job["draft"], "script": cfg["script"]}
-                emit(job)
-                work_q.put(("process", jid, None))
+                if not cfg.get("autocut", True):
+                    start_edit(job)              # „✏ Editez eu”: pe loc, ca sa intri imediat in Timeline
+                    if job["status"] == "error" and len(ids) == 1:
+                        return self._json({"error": job["error"]}, 400)
+                else:
+                    emit(job)
+                    work_q.put(("process", jid, None))
                 started.append(jid)
             if not started:
                 return self._json({"error": "Nu e niciun video pregătit de pornit."}, 409)
@@ -1116,6 +1206,24 @@ class Handler(BaseHTTPRequestHandler):
             job = self._job_with_project(parts[2])
             if not job:
                 return
+            body = self._read_json() or {}
+            segs = body.get("segments")
+            if not isinstance(segs, list):                 # din pagina video-ului: taieturile nesalvate din ciorna, daca sunt
+                try:
+                    segs = json.loads((Path(job["dir"]) / DRAFT_FILE).read_text(encoding="utf-8")).get("segments")
+                except (OSError, ValueError):
+                    segs = None
+            try:
+                job["caps_segs"] = [[float(a), float(b)] for a, b in segs] if isinstance(segs, list) and segs else None
+            except (TypeError, ValueError):
+                job["caps_segs"] = None
+            if job.get("task") == "prep":                 # inca pregatesc previzualizarea: subtitrarile vin imediat dupa
+                job["want_captions"] = job["caps_next"] = True
+                st2 = job["stages"][1]
+                if st2["status"] != "active":
+                    st2.update(status="active", progress=None, detail="Se pregătește în fundal…")
+                emit(job)
+                return self._json({"ok": True})
             if job["status"] in ("running", "queued"):
                 return self._json({"error": "Video-ul e încă în lucru. Încearcă după ce se termină."}, 409)
             job["status"], job["task"], job["stage"] = "queued", "captions", 2

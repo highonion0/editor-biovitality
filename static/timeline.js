@@ -69,7 +69,7 @@ async function openTimeline(j) {
   clearTimeout(slow);
   if (pv.url) d.source = pv.url;
   Object.assign(T, {
-    on: true, id: j.id, name: j.name, pr: d.project, visionDefault: d.vision_default || '', scChosen: null, scCut: null, capWait: !!d.captions_busy,
+    on: true, id: j.id, name: j.name, pr: d.project, visionDefault: d.vision_default || '', scChosen: null, scCut: null, capWait: !!d.captions_busy, bgPrep: !!d.prep,
     src: d.source, assetBase: d.asset_base, assets: d.assets,
     segs: deep(d.project.segments), ovs: deep(d.project.overlays || []), auds: deep(d.project.audio || []),
     look: deep(d.project.look || { color: { preset: 'original', brightness: 0, contrast: 1, saturation: 1, temperature: 0, tint: 0 }, audio: { denoise: 'off', clear: false, loudness: false } }),
@@ -86,6 +86,28 @@ async function openTimeline(j) {
   }).catch(() => {});
   fetch(`/api/waveform/${j.id}`).then(r => r.json()).then(w => { if (!w.error) { T.wave = w; tlDrawClips(); } }).catch(() => {});
 }
+/* „✏ Editez eu”: previzualizarea rapida si subtitrarile se fac in fundal, cat editezi */
+function tlPrepUI() {
+  const el = $('#tPrep'); if (!el) return;
+  const j = S.jobs.get(T.id) || {}, s2 = (j.stages && j.stages[1]) || {};
+  let txt = j.task === 'prep' ? (s2.detail || 'Pregătesc în fundal…') : j.task === 'captions' ? 'Fac subtitrările…' : '';
+  if (txt && typeof s2.progress === 'number' && s2.progress > 0 && s2.progress < 100) txt = txt.replace(/…$/, '') + ` · ${Math.round(s2.progress)}%`;
+  el.hidden = !txt;
+  el.innerHTML = txt ? `<span class="spin"></span>${esc(txt)}` : '';
+  el.title = txt ? 'Poți edita între timp. „Salvează și randează” merge după ce se termină.' : '';
+}
+// la fiecare schimbare a video-ului: cand e gata copia rapida, previzualizarea trece pe ea (la acelasi moment)
+async function tlOnJob(j) {
+  tlPrepUI();
+  if (!T.bgPrep || !j || j.task === 'prep') return;
+  T.bgPrep = false;
+  const pv = await fetch(`/api/preview/${T.id}`).then(r => r.json()).catch(() => ({}));
+  if (!T.on || T.id !== j.id || !pv.url || !pv.url.includes('/preview')) return;
+  const t = T.t, was = T.playing; tlPause();
+  T.src = pv.url + '?v=' + Date.now();
+  T.vids.forEach(v => { v.src = T.src; });
+  T.vids[0].addEventListener('loadedmetadata', () => { tlSeek(t); if (was) tlPlay(); }, { once: true });
+}
 function leaveTimeline() {
   if (T.dirty && !confirm('Ai modificări care nu sunt încă în video. Ies acum? Rămân păstrate ca ciornă și le poți recupera când revii.')) return false;
   clearTimeout(T.asTimer); if (T.dirty) tlAutosave();
@@ -99,7 +121,7 @@ function buildTimeline() {
   $('#main').innerHTML = `
     <div class="tlhead">
       <button class="btn" id="tBack">${ICON.back}Înapoi</button>
-      <h2>Timeline · ${esc(T.name)}</h2>
+      <h2>Timeline · ${esc(T.name)} <span class="tprep" id="tPrep" hidden></span></h2>
       <span class="dirty" id="tDirty"></span>
       <button class="btn sm" id="tUndo" title="Anulează (Ctrl+Z)">↶ Anulează</button>
       <button class="btn sm" id="tRedo" title="Refă (Ctrl+Y)">↷ Refă</button>
@@ -155,6 +177,7 @@ function buildTimeline() {
     <input type="file" id="tPick" accept="image/*,video/*,audio/*,.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.m4v,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg,.flac" multiple hidden>`;
   $('#tBack').onclick = () => { if (leaveTimeline()) renderAll(); };
   $('#tSave').onclick = tlSave;
+  tlPrepUI();
   $('#tUndo').onclick = () => tlHistory(-1);
   $('#tRedo').onclick = () => tlHistory(1);
   $('#tPlay').onclick = () => (T.playing ? tlPause() : tlPlay());

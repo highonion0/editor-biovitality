@@ -38,14 +38,14 @@ function capAddPanel(body) {
     ${T.capWait ? '<div class="msg wait" style="max-width:none"><span class="spin"></span><span>Transcriu video-ul… Poți edita în continuare: '
         + 'subtitrările apar singure aici și pe video. „Salvează și randează” merge după ce sunt gata.</span></div>'
       : `<button class="cta" id="tcAdd">💬 Adaugă subtitrări</button>
-        <p class="sub2" style="margin:0">Transcriu tot video-ul (câteva minute). Dacă ai pus un script la încărcare, subtitrările iau textul din el.
-          Rămân la locul lor oricum tai sau muți bucățile.</p>`}</div>`;
+        <p class="sub2" style="margin:0">Transcriu doar ce ai păstrat pe timeline (așa că taie întâi ce nu-ți trebuie — merge și mai repede).
+          Tăieturile tale rămân cum sunt. Dacă ai pus un script la încărcare, subtitrările iau textul din el.</p>`}</div>`;
   const b = $('#tcAdd', body);
-  if (b) b.onclick = async () => { b.disabled = true; if (await addCaptions(T.id)) T.capWait = true; renderCaptionsTab(); };
+  if (b) b.onclick = async () => { b.disabled = true; if (await addCaptions(T.id, T.segs)) T.capWait = true; renderCaptionsTab(); };
 }
 // la fiecare schimbare a video-ului: cand s-a terminat transcrierea, subtitrarile intra in Timeline
 async function capOnJob(j) {
-  if (!T.capWait || !j || j.task === 'captions') return;
+  if (!T.capWait || !j || j.task) return;           // inca se face (subtitrarile sau pregatirea din fundal)
   T.capWait = false;
   const st = j.stages && j.stages[1];
   if (st && st.status === 'error') { toast('Subtitrările n-au mers: ' + (st.detail || 'vezi jurnalul tehnic.')); if (T.tab === 'cap') renderCaptionsTab(); return; }

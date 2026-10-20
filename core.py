@@ -599,7 +599,21 @@ def _prompt(cfg):
             "en": "Hi, today we talk about health, nature and balance."}[cfg["language"]]
     return (base + " " + ", ".join(terms) + ".") if terms else base
 
-def transcribe(src, cfg, report, on_segment):
+def caption_clips(segments, duration, pad=0.25):
+    """Bucatile de pe timeline -> portiunile de transcris (in ordinea din sursa, cu putin respiro, lipite).
+    None = practic tot video-ul (nu merita sa-l impart)."""
+    out = []
+    for a, b in sorted([max(0.0, float(a) - pad), min(duration, float(b) + pad)] for a, b in segments or [] if float(b) > float(a)):
+        if out and a <= out[-1][1] + 0.05:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    if not out or sum(b - a for a, b in out) >= 0.97 * duration:
+        return None
+    return [[round(a, 3), round(b, 3)] for a, b in out]
+
+def transcribe(src, cfg, report, on_segment, clips=None):
+    """clips = [[a, b], ...]: transcriu doar portiunile astea (ce ai pastrat pe timeline), nu tot video-ul."""
     report({"type": "stage", "n": 2})
     report({"type": "progress", "value": None})
     model, dev = load_model(cfg["quality"], report)
@@ -607,10 +621,21 @@ def transcribe(src, cfg, report, on_segment):
     report({"type": "device", "device": dev,
             "label": st["label"] if dev == "cuda" else "Procesor"})
     duration = probe_duration(src) or 1.0
-    report({"type": "stage_detail", "n": 2, "detail": "Ascult și scriu…"})
+    kw = {}
+    if clips:
+        import inspect
+        if "clip_timestamps" in inspect.signature(model.transcribe).parameters:
+            kw["clip_timestamps"] = [t for a, b in clips for t in (float(a), float(b))]
+        else:
+            clips = None                                   # faster-whisper prea vechi: transcriu tot
+    total = sum(b - a for a, b in clips) if clips else duration
+    done_at = lambda t: sum(max(0.0, min(b, t) - a) for a, b in clips) if clips else t
+    inside = lambda t: not clips or any(a - 0.3 <= t <= b + 0.3 for a, b in clips)
+    report({"type": "stage_detail", "n": 2, "detail": "Ascult și scriu…" if not clips
+            else f"Ascult doar ce ai păstrat ({fmt_ts(total, '.')[3:8]} din {fmt_ts(duration, '.')[3:8]})…"})
     report({"type": "progress", "value": 0})
     segments, _info = model.transcribe(str(src), language=cfg["language"], word_timestamps=True,
-                                       beam_size=5, initial_prompt=_prompt(cfg))
+                                       beam_size=5, initial_prompt=_prompt(cfg), **kw)
     words = []
     for seg in segments:
         text = seg.text.strip()
@@ -618,9 +643,9 @@ def transcribe(src, cfg, report, on_segment):
             on_segment(seg.start, seg.end, text)
         for w in (seg.words or []):
             t = w.word.strip()
-            if t:
+            if t and inside((w.start + w.end) / 2):
                 words.append((w.start, w.end, t))
-        report({"type": "progress", "value": round(min(99.0, seg.end / duration * 100), 1)})
+        report({"type": "progress", "value": round(min(99.0, done_at(seg.end) / total * 100), 1)})
     report({"type": "stage_detail", "n": 2,
             "detail": f"{len(words)} cuvinte · {'GPU' if dev == 'cuda' else 'procesor'}"})
     report({"type": "log", "msg": f"{len(words)} cuvinte transcrise."})
@@ -1559,13 +1584,18 @@ def preview_audio_sync(job_dir, project):
 # ---- copia usoara pentru previzualizarea din Timeline („proxy”, ca in editoarele profesioniste)
 PREVIEW_FILE = "_previzualizare.mp4"
 
+def preview_fresh(job_dir, project):
+    """Copia de previzualizare exista si e facuta din sursa de acum."""
+    out, src = Path(job_dir) / PREVIEW_FILE, project_source(job_dir, project)
+    return out.exists() and src.exists() and out.stat().st_mtime >= src.stat().st_mtime and out.stat().st_size > 1000
+
 def make_preview(job_dir, project, report=None):
     """720p, cadru-cheie la fiecare ~0,5 s: salturi instant la taieturi si mult mai putin de decodat.
     Timpii raman identici cu sursa; video-ul final se randeaza tot din sursa la rezolutie completa."""
     job_dir = Path(job_dir)
     src = project_source(job_dir, project)
     out = job_dir / PREVIEW_FILE
-    if out.exists() and out.stat().st_mtime >= src.stat().st_mtime and out.stat().st_size > 1000:
+    if preview_fresh(job_dir, project):
         return out
     try:
         snd = processed_audio(job_dir, project)
@@ -2297,13 +2327,15 @@ def script_cut(project, segments, cfg):
     segs, _ = _script_result(sa, al, words, base, {**cfg, "script_captions": False}, True)
     return segs, base
 
-def add_captions(job_dir, cfg, report, on_segment):
-    """„💬 Adaugă subtitrări” pentru un video incarcat fara ele: transcriu sursa intreaga (subtitrarile sunt in timpul
-    sursei, deci raman bune oricum ai taiat). Cu script, iau textul din el, fara sa tai nimic."""
+def add_captions(job_dir, cfg, report, on_segment, segments=None):
+    """„💬 Adaugă subtitrări” pentru un video incarcat fara ele. segments = ce e acum pe timeline: transcriu doar
+    bucatile pastrate (mai repede); subtitrarile sunt in timpul sursei, deci raman bune oricum muti / tai mai departe.
+    Cu script, iau textul din el, fara sa tai nimic."""
     job_dir = Path(job_dir)
     pr = load_project(job_dir)
     src = project_source(job_dir, pr)
-    words = transcribe(src, cfg, report, on_segment)
+    dur = float(pr.get("source_duration") or probe_duration(src))
+    words = transcribe(src, cfg, report, on_segment, caption_clips(segments, dur) if segments else None)
     if not words:
         raise RuntimeError("Nu am auzit vorbă în video — n-am ce subtitra.")
     info = None
@@ -2325,11 +2357,78 @@ def add_captions(job_dir, cfg, report, on_segment):
     return pr
 
 
+# ------------------------------------------------------------ „✏ Editez eu”
+def edit_setup(video, job_dir, cfg):
+    """Pasul pe loc (cateva secunde, fara coada): proiectul cu video-ul intreg, ca sa intri imediat in Timeline.
+    Sursa ramane filmarea originala: browserul o arata drept chiar daca are eticheta de rotatie (telefon);
+    o indrept abia la „Salveaza si randeaza” (ensure_upright). Copia usoara si subtitrarile vin in fundal (edit_prepare)."""
+    video, job_dir = Path(video), Path(job_dir)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    dur = round(probe_duration(video) or 0, 3)
+    if dur <= 0:
+        raise RuntimeError("Nu pot citi video-ul (durata necunoscută). E un fișier video întreg?")
+    rot = probe_rotation(video)
+    w, h = probe_size(video)
+    if rot in (90, 270):                    # dimensiunile asa cum se vede, nu cum e stocat
+        w, h = h, w
+    project = {
+        "version": 2, "source": str(video.resolve()), "source_duration": dur, "width": w, "height": h, "fps": probe_fps(video),
+        "segments": [[0.0, dur]], "captions": {"version": 1, "style": load_default_style(), "cues": []},
+        "overlays": [], "audio": [], "settings": {**cfg, "script_retakes": False, "script_offscript": False},
+        "look": load_default_look(), "zooms": [], "transitions": {},
+    }
+    if rot:
+        project["rotation"] = rot
+    save_project(job_dir, project)
+    return project
+
+def edit_prepare(job_dir, cfg, report, on_segment, want_captions, segments=lambda: None):
+    """In fundal, cat editezi: copia usoara pentru previzualizare, apoi subtitrarile (daca want_captions() e adevarat
+    cand ajung la ele; segments() = bucatile de pe timeline, daca le-ai cerut dupa ce ai taiat). True = le-a facut."""
+    job_dir = Path(job_dir)
+    report({"type": "stage", "n": 2})
+    report({"type": "stage_detail", "n": 2, "detail": "Fac copia pentru previzualizare (în fundal)…"})
+    try:
+        make_preview(job_dir, load_project(job_dir), report)
+    except Exception as e:
+        report({"type": "log", "msg": f"Copia de previzualizare n-a mers ({_short_err(e)}); Timeline-ul folosește originalul."})
+    if not want_captions() or (load_project(job_dir).get("captions") or {}).get("cues"):
+        return False
+    add_captions(job_dir, cfg, report, on_segment, segments())
+    return True
+
+def ensure_upright(job_dir, project, report):
+    """La randare: filmarea cu eticheta de rotatie se indreapta o singura data (sursa.mp4), ca sa nu iasa culcata.
+    Copiile facute din original (previzualizare, filmstrip, unda) raman bune: aceeasi imagine, aceiasi timpi."""
+    job_dir = Path(job_dir)
+    src = project_source(job_dir, project)
+    if not project.get("rotation") or src.parent == job_dir:
+        return project
+    dst = job_dir / "sursa.mp4"
+    report({"type": "log", "msg": f"Video-ul are etichetă de rotație ({project['rotation']}°) — îl îndrept (o singură dată), ca să nu iasă culcat."})
+    encode(src, dst, None, str(job_dir), report, 1, "Îndrept video-ul")
+    project["source"] = dst.name
+    project.pop("rotation", None)
+    save_project(job_dir, project)
+    for f in (PREVIEW_FILE, "_filmstrip.jpg", "_filmstrip.json", "_waveform.json"):
+        p = job_dir / f
+        if p.exists():
+            os.utime(p, None)                   # mai noi decat sursa.mp4 -> nu se refac degeaba
+    return project
+
+
 # ------------------------------------------------------------ totul
 def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=None, before_final=None):
     """before_final(project) -> project: pasul aplicatiei inainte de randare (materialele tale puse pe timeline)."""
     video, job_dir = Path(video), Path(job_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
+    if not cfg.get("autocut", True):        # „✏ Editez eu”: fara taiere si fara randare (vezi edit_setup)
+        edit_setup(video, job_dir, cfg)
+        if before_final:
+            save_project(job_dir, before_final(load_project(job_dir)) or load_project(job_dir))
+        edit_prepare(job_dir, cfg, report, on_segment, lambda: cfg.get("captions_now", True))
+        report({"type": "done", "files": {"project": PROJECT_FILE}})
+        return {"project": PROJECT_FILE}
     files = {}
 
     # 1) sursa dreapta + pauzele + copia taiata
@@ -2339,13 +2438,7 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         report({"type": "log", "msg": f"Video-ul are etichetă de rotație ({probe_rotation(video)}°) — îl îndrept întâi, ca să nu iasă culcat."})
         src = job_dir / "sursa.mp4"
         encode(video, src, None, str(job_dir), report, 1, "Îndrept video-ul")
-    edit = not cfg.get("autocut", True)
-    if not edit:
-        segs = analyze_segments(src, job_dir, cfg, report)
-    else:   # „✏ Editez eu”: video-ul ramane intreg si nu se randeaza acum; scriptul doar pentru textul subtitrarilor
-        segs = [[0.0, round(probe_duration(src), 3)]]
-        cfg = {**cfg, "script_retakes": False, "script_offscript": False}
-        report({"type": "log", "msg": "✏ Editezi tu: nu tai nimic și nu randez acum. Video-ul final se face când apeși „Salvează și randează” în Timeline."})
+    segs = analyze_segments(src, job_dir, cfg, report)
     cut = job_dir / "video_taiat.mp4"
     look0 = load_default_look()
     try:
@@ -2356,15 +2449,12 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         snd = None
         report({"type": "log", "msg": f"Curățarea sunetului n-a mers ({_short_err(e)}); folosesc sunetul original."})
     script = (cfg.get("script") or "").strip()
-    if edit:
-        report({"type": "skipped", "n": 1, "detail": "Fără tăiere — o faci tu în Timeline"})
-    elif script:
+    if script:
         report({"type": "stage_detail", "n": 1, "detail": "Pauze găsite · urmează potrivirea cu scriptul"})
     else:
         render_proxy(src, segs, cut, report, audio_src=snd)
         report({"type": "cut_done", "from": round(probe_duration(src), 1), "to": round(seg_total(segs), 1)})
-    if not edit:
-        files["cut"] = cut.name
+    files["cut"] = cut.name
 
     w, h = probe_size(src)
     project = {
@@ -2377,32 +2467,19 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
     files["project"] = PROJECT_FILE
 
     # 2) transcriu SURSA (timpii raman valabili daca schimbi taieturile)
-    no_caps = edit and not cfg.get("captions_now", True)
-    if no_caps:
-        words = []
-        report({"type": "stage", "n": 2})
-    else:
-        words = transcribe(src, cfg, report, on_segment)
-    det2 = f"{len(words)} cuvinte"
-    if script and words:
+    words = transcribe(src, cfg, report, on_segment)
+    if script:
         segs, words, summary, info = apply_script(script, words, segs, cfg, report, src)
         project["segments"] = segs
         if info:
-            if edit:
-                info["cuts"] = False        # scriptul nu taie nimic; „✂ Taie după script” din Timeline, cand vrei tu
             project["script_align"] = info
         save_project(job_dir, project)
-        if not edit:
-            render_proxy(src, segs, cut, report, n=2, scale=(0, 100), audio_src=snd)
-            report({"type": "cut_done", "from": round(probe_duration(src), 1), "to": round(seg_total(segs), 1)})
-        det2 = summary
-        report({"type": "stage_detail", "n": 2, "detail": summary})
-    elif script and not edit:
         render_proxy(src, segs, cut, report, n=2, scale=(0, 100), audio_src=snd)
+        report({"type": "stage_detail", "n": 2, "detail": summary})
         report({"type": "cut_done", "from": round(probe_duration(src), 1), "to": round(seg_total(segs), 1)})
     inside = lambda t: any(a <= t <= b for a, b in segs)
     words = [w_ for w_ in words if inside((w_[0] + w_[1]) / 2)]
-    if not words and not edit:
+    if not words:
         if before_final:
             save_project(job_dir, before_final(project) or project)
         report({"type": "log", "msg": "Nu am detectat vorbă — am făcut doar tăierea."})
@@ -2410,34 +2487,22 @@ def process(video, job_dir, cfg, report, on_segment, source_url=None, asset_url=
         report({"type": "done", "files": files})
         return files
 
-    if words:
-        project["captions"] = build_captions(chunk_words(words, cfg["words_per_caption"]), load_default_style())
-        save_project(job_dir, project)
-        save_caption_files(job_dir, captions_to_out(project["captions"], segs))
-        files.update(srt="subtitrari.srt", txt="transcript.txt", captions=PROJECT_FILE)
-    elif cfg.get("captions_now", True):
-        report({"type": "log", "msg": "Nu am auzit vorbă în video — n-am făcut subtitrări."})
+    project["captions"] = build_captions(chunk_words(words, cfg["words_per_caption"]), load_default_style())
+    save_project(job_dir, project)
+    save_caption_files(job_dir, captions_to_out(project["captions"], segs))
+    files.update(srt="subtitrari.srt", txt="transcript.txt", captions=PROJECT_FILE)
 
-    if edit:
-        report({"type": "stage_detail", "n": 2, "detail": "Pregătesc copia pentru Timeline…"})
     try:
         make_preview(job_dir, project, report)
     except Exception as e:
         report({"type": "log", "msg": f"Copia de previzualizare n-a mers ({_short_err(e)}); Timeline-ul folosește originalul."})
-    if no_caps:
-        report({"type": "skipped", "n": 2, "detail": "Fără subtitrări — le adaugi din Timeline, când vrei"})
-    elif edit:
-        report({"type": "stage_detail", "n": 2, "detail": det2 if words else "Fără vorbă detectată"})
 
     if before_final:
         project = before_final(project) or project
         save_project(job_dir, project)
 
     # 3) video-ul final
-    if edit:
-        report({"type": "skipped", "n": 3, "detail": "Când apeși „Salvează și randează” în Timeline"})
-        report({"type": "log", "msg": "✏ Gata de editat: deschide Timeline-ul. Video-ul final se randează când apeși „Salvează și randează”."})
-    elif cfg["burn_captions"]:
+    if cfg["burn_captions"]:
         files["final"] = render_final(job_dir, project, report, source_url, asset_url)
     else:
         report({"type": "skipped", "n": 3, "detail": "Oprit din setări"})

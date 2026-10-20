@@ -442,6 +442,7 @@ function handle(ev) {
     renderSidebar(); renderMain();
     if (T.on && ev.job.id === T.id && typeof pubOnJob === 'function') pubOnJob();
     if (T.on && ev.job.id === T.id && typeof capOnJob === 'function') capOnJob(S.jobs.get(ev.job.id));
+    if (T.on && ev.job.id === T.id && typeof tlOnJob === 'function') tlOnJob(S.jobs.get(ev.job.id));
   } else if (ev.type === 'segment') {
     const j = S.jobs.get(ev.id); if (!j) return;
     j.segments.push(ev.seg);
@@ -485,8 +486,10 @@ function statusText(j) {
 const PILL = { draft: 'Pregătit', queued: 'În așteptare', running: 'În lucru', done: 'Gata', error: 'Eroare' };
 // „✏ Editez eu”: video-ul n-a fost inca randat (il editeaza ea in Timeline)
 const toEdit = j => !!(j.edit && !(j.files && j.files.final));
-async function addCaptions(id) {
-  const r = await post(`/api/captions-add/${id}`);
+// segments = ce e acum pe timeline (din Timeline); fara ele, serverul ia taieturile nesalvate din ciorna
+async function addCaptions(id, segments) {
+  const r = await fetch(`/api/captions-add/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(segments ? { segments } : {}) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
   if (r.error) { toast(r.error); return false; }
   toast('Fac subtitrările… Poți edita în continuare; apar singure când sunt gata.');
   return true;
@@ -639,10 +642,13 @@ function updateJob(j) {
   const capBusy = j.task === 'captions';
   $('#aTimeline').disabled = !((j.status === 'done' || capBusy) && j.files && j.files.project);
   // „✏ Editez eu”: de aici intri in Timeline (si iti faci subtitrarile, daca nu le-ai facut la incarcare)
+  const capsComing = capBusy || (j.task === 'prep' && j.caps_next);
+  const bgTxt = j.task === 'prep' ? ((j.stages[1] && j.stages[1].detail) || 'Pregătesc în fundal…') : '';
   const eh = (j.status === 'done' || capBusy) && toEdit(j) ? `<div class="editbox"><div><b>✏ Gata de editat.</b> Video-ul e întreg, cum l-ai filmat.
       Îl tai și îl aranjezi în Timeline; video-ul final se randează când apeși „Salvează și randează”.</div>
+      ${bgTxt ? `<div style="color:var(--muted)">⏳ ${esc(bgTxt)} Poți edita deja.</div>` : ''}
       <div class="row"><button class="cta" id="aEditTl">✏ Deschide în Timeline</button>
-      ${!(j.files && j.files.captions) ? `<button class="btn" id="aAddCap" ${capBusy ? 'disabled' : ''}>${capBusy ? '<span class="spin"></span>Fac subtitrările…' : '💬 Adaugă subtitrări'}</button>` : ''}</div></div>` : '';
+      ${!(j.files && j.files.captions) ? `<button class="btn" id="aAddCap" ${capsComing ? 'disabled' : ''}>${capsComing ? '<span class="spin"></span>Fac subtitrările…' : '💬 Adaugă subtitrări'}</button>` : ''}</div></div>` : '';
   const jEdit = $('#jEdit');
   if (jEdit.dataset.h !== eh) {                       // redesenez doar cand se schimba (altfel click-ul se pierde)
     jEdit.dataset.h = eh; jEdit.innerHTML = eh;
@@ -878,14 +884,20 @@ function saveDraft(id) {
 }
 async function startDraft(id) {
   clearTimeout(draftTimer);
+  const edit = !S.settings.autocut;
   const b = $('#dStart'); if (b) b.disabled = true;
   const script = S.draftText[id] ?? (S.jobs.get(id)?.draft?.script || '');
   const r = await fetch(`/api/start/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ script, settings: S.settings }) }).then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
   if (r.error) { toast(r.error); if (b) b.disabled = false; return; }
   delete S.draftText[id];
-  toast(!S.settings.autocut ? 'Pornit. Pregătesc video-ul pentru Timeline: fără tăiere, fără randare.'
-    : script.trim() ? 'Pornit. Tai pauzele, transcriu și potrivesc cu scriptul.' : 'Pornit fără script: tai pauzele și transcriu.');
+  if (edit) {                        // „✏ Editez eu”: direct in Timeline; copia rapida (si subtitrarile) vin in fundal
+    const j = S.jobs.get(id) || { id, name: '' };
+    S.selected = id; openTimeline({ id, name: j.name });
+    toast('✏ Editezi tu. Previzualizarea rapidă' + (S.settings.captions_now ? ' și subtitrările se fac' : ' se face') + ' în fundal — vezi sus, lângă titlu.');
+    return;
+  }
+  toast(script.trim() ? 'Pornit. Tai pauzele, transcriu și potrivesc cu scriptul.' : 'Pornit fără script: tai pauzele și transcriu.');
 }
 async function startAllDrafts(id) {
   clearTimeout(draftTimer);
