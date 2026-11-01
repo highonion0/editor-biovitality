@@ -82,6 +82,8 @@ def public(job, full=False):
     return d
 
 def emit(job):
+    if jobs.get(job["id"]) is not job:      # scos din lista intre timp (pregatirea din fundal inca lucra): nu-l readuc
+        return
     hub.publish({"type": "job", "job": public(job)})
 
 def add_log(job, msg):
@@ -182,11 +184,12 @@ def make_report(job):
 # ------------------------------------------------------------ proiectele raman in lista si dupa repornire
 JOB_META = "job.json"
 DRAFT_FILE = "_ciorna_timeline.json"
-META_KEYS = ("id", "name", "path", "settings", "settings_view", "files", "cut_from", "cut_to", "device", "created", "finished")
+META_KEYS = ("id", "name", "path", "settings", "settings_view", "files", "cut_from", "cut_to", "device", "created", "finished",
+             "hidden")                  # hidden = scos din lista (×); fisierele raman, il readuci din „↺ Video-uri scoase din listă”
 
 def save_job_meta(job):
     """Datele jobului langa proiect, ca aplicatia sa-l poata reincarca la urmatoarea pornire."""
-    if not job.get("dir"):
+    if not job.get("dir") or jobs.get(job["id"]) is not job:     # scos din lista (sau readus intre timp ca job nou)
         return
     try:
         (Path(job["dir"]) / JOB_META).write_text(json.dumps({k: job.get(k) for k in META_KEYS}, ensure_ascii=False, indent=1),
@@ -222,54 +225,80 @@ def load_existing_projects():
         return 0
     n = 0
     for d in sorted((x for x in OUT_DIR.iterdir() if x.is_dir()), key=lambda x: x.stat().st_mtime):
-        pf = d / core.PROJECT_FILE
-        if not pf.exists():
-            continue
-        try:
-            pr = json.loads(pf.read_text(encoding="utf-8"))
-            meta = json.loads((d / JOB_META).read_text(encoding="utf-8")) if (d / JOB_META).exists() else {}
-        except (OSError, ValueError):
-            continue
-        if meta.get("hidden"):
-            continue
-        cfg = core.merge_settings(meta.get("settings") or pr.get("settings") or {})
-        src = pr.get("source", "")
-        path = meta.get("path") or (src if Path(src).is_absolute() else str(d / src))
-        # proiectele vechi: numele vine din folder (sursa din folder e doar copia indreptata)
-        name = meta.get("name") or (Path(src).name if Path(src).is_absolute() else re.sub(r" \(\d+\)$", "", d.name) + ".mp4")
-        job = create_job(name, Path(path), cfg, "done")
-        if meta.get("id") and meta["id"] not in jobs:
-            jobs.pop(job["id"]); order.remove(job["id"])
-            job["id"] = meta["id"]; jobs[job["id"]] = job; order.append(job["id"])
-        files = _files_in(d, pr)
-        job.update(dir=str(d), folder=d.name, files=files, stage=3, media="final" if files.get("final") else "cut",
-                   cut_from=meta.get("cut_from") or (round(float(pr.get("source_duration") or 0), 1) if files.get("cut") else None),
-                   cut_to=meta.get("cut_to") or (round(core.seg_total(pr.get("segments") or []), 1) if files.get("cut") else None),
-                   edit=not cfg.get("autocut", True), has_draft=(d / DRAFT_FILE).exists(),
-                   device=meta.get("device"), finished=meta.get("finished") or d.stat().st_mtime,
-                   settings_view=meta.get("settings_view") or core.settings_summary(cfg))
-        # transcrierea (pentru panoul „Transcript” si „Copiaza textul”), refacuta din subtitrarile proiectului
-        cues = sorted((pr.get("captions") or {}).get("cues") or [], key=lambda c: c.get("start", 0))
-        job["segments"] = [{"start": round(c["start"], 2), "end": round(c["end"], 2),
-                            "text": " ".join(w.get("t", "") for w in c.get("words") or []).strip()}
-                           for c in cues if isinstance(c, dict) and "start" in c and "end" in c]
-        for s_, det in zip(job["stages"], ("Din proiectul salvat", "", "Randat" if files.get("final") else "—")):
-            s_.update(status="done", progress=100, detail=det)
-        if job["edit"]:                                 # „✏ Editez eu”: ce n-ai facut inca
-            if not files.get("cut"):
-                job["stages"][0].update(status="skipped", detail="Fără tăiere — o faci tu în Timeline")
-            if not files.get("captions"):
-                job["stages"][1].update(status="skipped", detail="Fără subtitrări — le adaugi din Timeline, când vrei")
-            if not files.get("final"):
-                job["stages"][2].update(status="skipped", detail="Când apeși „Salvează și randează” în Timeline")
-            if not files.get("final") and not core.preview_fresh(d, pr):
-                job.update(task="prep", caps_next=bool(cfg.get("captions_now", True) and not files.get("captions")))
-                job["stages"][1].update(status="active", progress=None, detail="Se pregătește în fundal…")
-                work_q.put(("prep", job["id"], None))
-        job["log"].append({"t": time.strftime("%H:%M:%S"), "msg": f"Reîncărcat din {d.name} — editările tale sunt aici."})
-        save_job_meta(job)
-        n += 1
+        if load_project_dir(d):
+            n += 1
     return n
+
+def _read_project_dir(d):
+    """(proiectul, meta) dintr-un folder din output/, sau (None, None)."""
+    pf = d / core.PROJECT_FILE
+    if not pf.exists():
+        return None, None
+    try:
+        pr = json.loads(pf.read_text(encoding="utf-8"))
+        meta = json.loads((d / JOB_META).read_text(encoding="utf-8")) if (d / JOB_META).exists() else {}
+    except (OSError, ValueError):
+        return None, None
+    return pr, meta
+
+def hidden_projects():
+    """Video-urile scoase din lista (×): fisierele si ciorna au ramas in output/, doar sunt ascunse."""
+    out = []
+    if OUT_DIR.is_dir():
+        for d in OUT_DIR.iterdir():
+            if not d.is_dir():
+                continue
+            pr, meta = _read_project_dir(d)
+            if pr is None or not meta.get("hidden"):
+                continue
+            out.append({"folder": d.name, "name": meta.get("name") or d.name, "when": d.stat().st_mtime,
+                        "draft": (d / DRAFT_FILE).exists()})
+    return sorted(out, key=lambda x: -x["when"])
+
+def load_project_dir(d, unhide=False):
+    """Un proiect din output/ inapoi in lista (la pornire, sau cand readuci un video scos din lista)."""
+    pr, meta = _read_project_dir(d)
+    if pr is None:
+        return None
+    if meta.get("hidden") and not unhide:
+        return None
+    cfg = core.merge_settings(meta.get("settings") or pr.get("settings") or {})
+    src = pr.get("source", "")
+    path = meta.get("path") or (src if Path(src).is_absolute() else str(d / src))
+    # proiectele vechi: numele vine din folder (sursa din folder e doar copia indreptata)
+    name = meta.get("name") or (Path(src).name if Path(src).is_absolute() else re.sub(r" \(\d+\)$", "", d.name) + ".mp4")
+    job = create_job(name, Path(path), cfg, "done")
+    if meta.get("id") and meta["id"] not in jobs:
+        jobs.pop(job["id"]); order.remove(job["id"])
+        job["id"] = meta["id"]; jobs[job["id"]] = job; order.append(job["id"])
+    files = _files_in(d, pr)
+    job.update(dir=str(d), folder=d.name, files=files, stage=3, media="final" if files.get("final") else "cut",
+               cut_from=meta.get("cut_from") or (round(float(pr.get("source_duration") or 0), 1) if files.get("cut") else None),
+               cut_to=meta.get("cut_to") or (round(core.seg_total(pr.get("segments") or []), 1) if files.get("cut") else None),
+               edit=not cfg.get("autocut", True), has_draft=(d / DRAFT_FILE).exists(),
+               device=meta.get("device"), finished=meta.get("finished") or d.stat().st_mtime,
+               settings_view=meta.get("settings_view") or core.settings_summary(cfg))
+    # transcrierea (pentru panoul „Transcript” si „Copiaza textul”), refacuta din subtitrarile proiectului
+    cues = sorted((pr.get("captions") or {}).get("cues") or [], key=lambda c: c.get("start", 0))
+    job["segments"] = [{"start": round(c["start"], 2), "end": round(c["end"], 2),
+                        "text": " ".join(w.get("t", "") for w in c.get("words") or []).strip()}
+                       for c in cues if isinstance(c, dict) and "start" in c and "end" in c]
+    for s_, det in zip(job["stages"], ("Din proiectul salvat", "", "Randat" if files.get("final") else "—")):
+        s_.update(status="done", progress=100, detail=det)
+    if job["edit"]:                                 # „✏ Editez eu”: ce n-ai facut inca
+        if not files.get("cut"):
+            job["stages"][0].update(status="skipped", detail="Fără tăiere — o faci tu în Timeline")
+        if not files.get("captions"):
+            job["stages"][1].update(status="skipped", detail="Fără subtitrări — le adaugi din Timeline, când vrei")
+        if not files.get("final"):
+            job["stages"][2].update(status="skipped", detail="Când apeși „Salvează și randează” în Timeline")
+        if not files.get("final") and not core.preview_fresh(d, pr):
+            job.update(task="prep", caps_next=bool(cfg.get("captions_now", True) and not files.get("captions")))
+            job["stages"][1].update(status="active", progress=None, detail="Se pregătește în fundal…")
+            work_q.put(("prep", job["id"], None))
+    job["log"].append({"t": time.strftime("%H:%M:%S"), "msg": f"Reîncărcat din {d.name} — editările tale sunt aici."})
+    save_job_meta(job)                              # meta fara „hidden”: video-ul e din nou in lista
+    return job
 
 
 # ------------------------------------------------------------ materialele urcate odata cu video-ul
@@ -830,6 +859,8 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 return
             self._json(script_view(core.load_project(job["dir"])))
+        elif path == "/api/hidden":
+            self._json({"items": hidden_projects()})
         elif path == "/api/cutout-status":
             import cutout
             self._json(cutout.status())
@@ -976,16 +1007,25 @@ class Handler(BaseHTTPRequestHandler):
             OUT_DIR.mkdir(exist_ok=True)
             open_folder(OUT_DIR)
             return self._json({"ok": True})
+        if path == "/api/unhide":
+            # readuci in lista un video scos din greseala (cu tot cu ciorna lui)
+            body = self._read_json() or {}
+            d = OUT_DIR / Path(str(body.get("folder", ""))).name
+            if not body.get("folder") or not d.is_dir() or d.parent != OUT_DIR:
+                return self._json({"error": "Nu mai găsesc folderul video-ului."}, 404)
+            if any(j.get("dir") and Path(j["dir"]) == d for j in jobs.values()):
+                return self._json({"error": "Video-ul e deja în listă."}, 409)
+            job = load_project_dir(d, unhide=True)
+            if not job:
+                return self._json({"error": "Nu am putut citi proiectul video-ului."}, 400)
+            emit(job)
+            return self._json({"ok": True, "id": job["id"]})
         if len(parts) == 3 and parts[:2] == ["api", "remove"]:
             job = jobs.get(parts[2])
             if job and job["status"] != "running":
+                job["hidden"] = True                # ramane ascuns si daca pregatirea din fundal isi salveaza starea dupa
                 if job.get("dir") and (Path(job["dir"]) / JOB_META).exists():
-                    try:
-                        m = json.loads((Path(job["dir"]) / JOB_META).read_text(encoding="utf-8"))
-                        m["hidden"] = True
-                        (Path(job["dir"]) / JOB_META).write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
-                    except (OSError, ValueError):
-                        pass
+                    save_job_meta(job)
                 job["status"] = "removed"
                 jobs.pop(job["id"], None)
                 if job["id"] in order: order.remove(job["id"])

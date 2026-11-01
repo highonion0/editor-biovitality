@@ -122,6 +122,8 @@ Timpii cuvintelor vin din transcriere; la proiectele vechi și la cuvintele resc
   În listă, video-ul arată „📝 ciornă”. Când revii, ciorna se încarcă singură („Renunță la ciornă” te duce la ultima variantă
   randată). Oricum, fiecare modificare se salvează singură după ~1 s, iar ieșirea din Timeline nu mai întreabă nimic.
   La „Salvează și randează” ciorna se șterge singură.
+- **× în listă** scoate video-ul doar din listă (întreabă înainte), nu șterge nimic. Îl readuci oricând, cu tot cu ciornă:
+  jos în stânga, **„↺ Video-uri scoase din listă”** → **↺ Readu**.
 
 ## 🎨 Look: culoare și sunet (tab în Timeline)
 - **Culoare** (doar pe video-ul tău): filtre Original / Natural / Cald / Luminos / Cinematic / Alb-negru, apoi

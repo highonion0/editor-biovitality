@@ -105,6 +105,10 @@ main{min-height:0;overflow:auto;padding:22px 26px 40px}
 .qitem:hover .x{display:grid}
 .qitem .x:hover{background:var(--raise);color:var(--text)}
 .qempty{color:var(--faint);font-size:12.5px;padding:6px 12px;line-height:1.5}
+.qhid{display:block;width:100%;margin-top:10px;padding:8px 12px;border:0;background:transparent;color:var(--faint);font-size:12px;text-align:left;cursor:pointer}
+.qhid:hover{color:var(--muted)}
+.qhrow{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12.5px;color:var(--muted)}
+.qhrow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---------- empty state */
 .hero{max-width:640px;margin:8vh auto 0;text-align:center}
@@ -541,6 +545,11 @@ function renderSidebar() {
       ${j.status !== 'running' ? `<span class="x" data-rm="${id}" title="Scoate din listă">${ICON.x}</span>` : ''}</button>`;
   }
   if (!html) html = `<div class="qempty">Nimic în lucru încă. Video-urile adăugate apar aici și se procesează pe rând.</div>`;
+  // video-urile scoase din lista (×): nimic nu s-a sters, le readuci de aici (cu tot cu ciorna)
+  html += `<button class="qhid" id="qHid">↺ Video-uri scoase din listă ${S.hidden ? '▴' : '▾'}</button>`;
+  if (S.hidden) html += S.hidden.length ? S.hidden.map(h => `<div class="qhrow"><span title="${esc(h.folder)}">${esc(h.name)}${h.draft ? ' · 📝 ciornă' : ''}</span>
+      <button class="btn sm" data-unhide="${esc(h.folder)}">↺ Readu</button></div>`).join('')
+    : '<div class="qempty">Nu ai scos niciun video din listă.</div>';
   q.innerHTML = html;
   const n = S.order.length; $('#qcount').textContent = n ? n : '';
 }
@@ -1348,9 +1357,32 @@ function toast(msg) {
 $('#drop').onclick = () => $('#picker').click();
 $('#drop').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#picker').click(); } };
 $('#picker').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
-$('#queue').addEventListener('click', e => {
+$('#queue').addEventListener('click', async e => {
   const rm = e.target.closest('[data-rm]');
-  if (rm) { e.stopPropagation(); post(`/api/remove/${rm.dataset.rm}`); return; }
+  if (rm) {
+    e.stopPropagation();
+    const j = S.jobs.get(rm.dataset.rm);
+    if (!confirm(`Scot „${(j && j.name) || 'video-ul'}” din listă?\n\nNu se șterge nimic (nici ciorna): îl readuci oricând din „↺ Video-uri scoase din listă”, jos în stânga.`)) return;
+    post(`/api/remove/${rm.dataset.rm}`); if (S.hidden) S.hidden = null;
+    return;
+  }
+  if (e.target.closest('#qHid')) {
+    S.hidden = S.hidden ? null : ((await fetch('/api/hidden').then(r => r.json()).catch(() => ({}))).items || []);
+    renderSidebar(); return;
+  }
+  const uh = e.target.closest('[data-unhide]');
+  if (uh) {
+    uh.disabled = true;
+    const r = await fetch('/api/unhide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder: uh.dataset.unhide }) })
+      .then(r => r.json()).catch(() => ({ error: 'Nu mă pot conecta la aplicație.' }));
+    if (r.error) { toast(r.error); uh.disabled = false; return; }
+    S.hidden = null;
+    if (T.on && !leaveTimeline()) return;
+    if (E.on && !leaveEditor()) return;
+    S.selected = r.id; renderAll();
+    toast('L-am readus. Intră în Timeline: ciorna ta se încarcă singură.');
+    return;
+  }
   const it = e.target.closest('.qitem[data-id]');
   if (it) {
     if (E.on && !leaveEditor()) return;
