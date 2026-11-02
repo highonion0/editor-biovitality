@@ -137,7 +137,7 @@ const OverlayItem: React.FC<{o: Overlay; dur: number}> = ({o, dur}) => {
     };
   return o.type === 'image'
     ? <Img src={o.src} style={style} />
-    : <OffthreadVideo src={o.src} style={style} muted={o.muted ?? true}
+    : <OffthreadVideo src={o.src} style={style} muted={o.muted ?? true} volume={o.volume ?? 1}
         startFrom={Math.round((o.source_start ?? 0) * fps)} />;
 };
 

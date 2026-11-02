@@ -1022,6 +1022,7 @@ def clean_overlays(raw, total, assets_dir):
             "x": round(_num(o.get("x"), -0.5, 1.5, 0.5), 4), "y": round(_num(o.get("y"), -0.5, 1.5, 0.35), 4),
             "w": round(_num(o.get("w"), 0.02, 3, 0.6), 4), "opacity": round(_num(o.get("opacity"), 0, 1, 1), 3),
             "muted": bool(o.get("muted", True)), "source_start": round(_num(o.get("source_start"), 0, 1e6, 0), 3),
+            "volume": round(_num(o.get("volume"), 0, 2, 1), 2),      # sunetul clipului (cand e pastrat): 1 = original
             "lane": int(_num(o.get("lane"), 0, 20, 0)),
             "rotation": round(_num(o.get("rotation"), -360, 360, 0), 2),
             "radius": round(_num(o.get("radius"), 0, 50, 0), 2),     # % din latura mai mica
@@ -1781,8 +1782,9 @@ def burn_classic(job_dir, project, dst, report, captions=True, cut=None, cap_out
                          f"{fitf},format=rgba")
                 if not o.get("muted", True) and probe_has_audio(f):
                     d = int(S * 1000)
+                    vol = o.get("volume", 1)
                     parts.append(f"[{k}:a]atrim=start={ss:.3f}:duration={E - S:.3f},asetpts=PTS-STARTPTS,"
-                                 f"adelay={d}:all=1[a{k}]")
+                                 + (f"volume={vol:.2f}," if abs(vol - 1) > 0.005 else "") + f"adelay={d}:all=1[a{k}]")
                     audio.append(f"[a{k}]")
             if o.get("radius", 0) > 0 and not cover:
                 mask = job_dir / f"_masca{n}.png"

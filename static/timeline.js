@@ -433,6 +433,7 @@ function tlPaint() {
     if (el.classList.contains('sel') !== isSel) el.classList.toggle('sel', isSel);
     if (o.type === 'video') {
       el.muted = o.muted !== false;
+      const vv = clamp(o.volume ?? 1, 0, 1); if (Math.abs(el.volume - vv) > 0.001) el.volume = vv;
       const want = (o.source_start || 0) + (T.t - o.start);
       if (vis && T.playing) { if (el.paused) el.play().catch(() => {}); if (Math.abs(el.currentTime - want) > 0.3) el.currentTime = want; }
       else { if (!el.paused) el.pause(); if (vis && Math.abs(el.currentTime - want) > 0.04) el.currentTime = want; }
@@ -1351,6 +1352,9 @@ function tlInspector() {
         <button class="tbtn" data-pip="0.22,0.62" title="Colț stânga jos">↙</button><button class="tbtn" data-pip="0.78,0.62" title="Colț dreapta jos">↘</button></span></div>
       ${o.prompt ? `<div class="sub2" style="margin:10px 0 0">Prompt folosit: <button class="btn sm" id="iCopyP">📋 Copiază</button></div>` : ''}
       ${vid ? `<label class="chk" style="margin-top:12px"><input type="checkbox" id="iSound" ${o.muted === false ? 'checked' : ''}>Păstrează sunetul clipului</label>` : ''}
+      ${vid && o.muted === false ? `<div class="kv" style="margin-top:8px"><label>Volum clip</label>
+        <input type="range" id="iVol" min="0" max="2" step="0.05" value="${o.volume ?? 1}"><output id="iVolO">${Math.round((o.volume ?? 1) * 100)}%</output></div>
+        <span class="sub2" style="margin:2px 0 0">100% = cum e clipul. Sub vocea ta merge de obicei 20–40%. Peste 100% se aude mai tare doar în video-ul final.</span>` : ''}
       ${o.fit === 'cover' || o.fit === 'bg' ? '' : moKeyRow(o)}
       <div class="row">
         <button class="tbtn" id="iUp" title="Pune-o deasupra">⬆ În față</button><button class="tbtn" id="iDown" title="Pune-o dedesubt">⬇ În spate</button>
@@ -1374,6 +1378,12 @@ function tlInspector() {
       else o.end = +clamp(n, o.start + 0.1, total).toFixed(3);
     }));
     const snd = $('#iSound'); if (snd) snd.onchange = () => tlChange(() => { o.muted = !snd.checked; });
+    const vol = $('#iVol'); let vprev = null;
+    if (vol) {
+      vol.onpointerdown = () => { vprev = tlSnap(); };
+      vol.oninput = () => { o.volume = +vol.value; $('#iVolO').textContent = Math.round(o.volume * 100) + '%'; tlPaint(); };
+      vol.onchange = () => { tlCommit(vprev || tlSnap()); vprev = null; };
+    }
     $('#iCover').onclick = () => tlChange(() => { o.fit = o.fit === 'cover' ? 'free' : 'cover'; if (o.fit !== 'cover' && o.w > 0.95) o.w = 0.8; });
     p.querySelectorAll('[data-pip]').forEach(b => b.onclick = () => tlChange(() => {
       const [x, y] = b.dataset.pip.split(',').map(Number); o.fit = 'free'; o.w = 0.4; o.x = x; o.y = y; o.radius = o.radius || 12;

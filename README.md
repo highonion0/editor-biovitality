@@ -154,6 +154,8 @@ tragi subtitrarea ca s-o muți (toate odată). Totul intră în Ctrl+Z și se sa
 4. **Tragi clipul pe loc** (în Timeline sau pe video) sau **🎬 Alege clipul descărcat** → se pune pe tot ecranul,
    fără sunet, pe durata locului. Locurile goale sunt sărite la randare (primești avertisment).
 Pentru orice video sau poză: **⛶ Tot ecranul** și colțurile **↖ ↗ ↙ ↘** (picture-in-picture).
+La un clip video, **Păstrează sunetul clipului** + **Volum clip** (0–200%; sub vocea ta merge de obicei 20–40%).
+În previzualizare se aude până la 100%; peste, doar în video-ul final.
 Verifică exactitatea științifică a clipurilor generate și marchează conținutul AI unde platforma o cere.
 
 ## 💡 Propuneri („cum aș edita eu”)

@@ -20,7 +20,7 @@ export type FontDef = {id: string; ratio: number; files: [string, number, string
 export type Overlay = {
   type: 'image' | 'video' | 'graphic'; src?: string; start: number; end: number;
   template?: string; props?: Record<string, string | boolean>;
-  x: number; y: number; w: number; opacity?: number; muted?: boolean; source_start?: number;
+  x: number; y: number; w: number; opacity?: number; muted?: boolean; volume?: number; source_start?: number;
   rotation?: number; radius?: number; ar?: number; lane?: number; fit?: 'cover' | 'free' | 'bg';
   pip?: Pip;            // doar pentru fit = 'bg': fereastra in care apari tu, peste acest fundal
   bgimg?: BgImg;        // doar pentru fit = 'bg': cum sta poza-fundal si culoarea din spate
